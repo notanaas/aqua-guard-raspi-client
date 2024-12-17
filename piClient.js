@@ -1,4 +1,5 @@
-const wpi = require('wiring-pi'); // Use wiring-pi for GPIO control
+const { init } = require('raspi');
+const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -10,24 +11,8 @@ const SERVER_URL = process.env.MAIN_SERVER_URL || 'http://localhost:3001';
 const DEVICE_SERIAL = process.env.DEVICE_SERIAL || 'DEFAULT_SERIAL';
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
-// Initialize WiringPi GPIO
-wpi.setup('gpio');
-
-// GPIO Pin Definitions
-const PIN_WATER_SWITCH = 17; // Input
-const PIN_MOTION_SENSOR = 27; // Input
-const PIN_RELAY_WATER_IN = 18; // Output
-const PIN_RELAY_WATER_OUT = 23; // Output
-const PIN_RELAY_CHLORINE_PUMP = 24; // Output
-const PIN_RELAY_FILTER_HEAD = 25; // Output
-
-// Pin Setup
-wpi.pinMode(PIN_WATER_SWITCH, wpi.INPUT);
-wpi.pinMode(PIN_MOTION_SENSOR, wpi.INPUT);
-wpi.pinMode(PIN_RELAY_WATER_IN, wpi.OUTPUT);
-wpi.pinMode(PIN_RELAY_WATER_OUT, wpi.OUTPUT);
-wpi.pinMode(PIN_RELAY_CHLORINE_PUMP, wpi.OUTPUT);
-wpi.pinMode(PIN_RELAY_FILTER_HEAD, wpi.OUTPUT);
+// Initialize GPIO Pins
+let waterSwitch, motionSensor, relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
 
 // Initialize CSV Logging
 function initializeCSV() {
@@ -36,14 +21,14 @@ function initializeCSV() {
   }
 }
 
-// Mock Sensor Data for Testing
+// Simulated ADC Sensor Data
 function readSensorData() {
   return {
-    pH: (Math.random() * 14).toFixed(2), // pH value between 0 and 14
-    temperature: (20 + Math.random() * 10).toFixed(2), // Temperature between 20-30°C
-    pressure: (Math.random() * 100).toFixed(2), // Pressure value
-    waterLevel: wpi.digitalRead(PIN_WATER_SWITCH) ? 100 : 0,
-    motion: wpi.digitalRead(PIN_MOTION_SENSOR),
+    pH: (Math.random() * 14).toFixed(2),
+    temperature: (20 + Math.random() * 10).toFixed(2),
+    pressure: (Math.random() * 100).toFixed(2),
+    waterLevel: waterSwitch.read() === HIGH ? 100 : 0,
+    motion: motionSensor.read() === HIGH ? 1 : 0,
     chlorineLevel: 2,
     turbidity: 30,
     weatherForecast: 'sunny',
@@ -51,20 +36,24 @@ function readSensorData() {
   };
 }
 
-// Control Relays Based on Actions
+// Control Actuators Based on Actions
 function controlActuators(actions) {
-  const relayMap = {
-    waterFillPump: PIN_RELAY_WATER_IN,
-    waterDrainPump: PIN_RELAY_WATER_OUT,
-    chlorinePump: PIN_RELAY_CHLORINE_PUMP,
-    filterMotor: PIN_RELAY_FILTER_HEAD,
-  };
-
   actions.forEach(({ actuator, command, message }) => {
-    if (relayMap[actuator] !== undefined) {
-      wpi.digitalWrite(relayMap[actuator], command ? wpi.HIGH : wpi.LOW);
-      console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'} - ${message}`);
+    switch (actuator) {
+      case 'waterFillPump':
+        relayWaterIn.write(command ? HIGH : LOW);
+        break;
+      case 'waterDrainPump':
+        relayWaterOut.write(command ? HIGH : LOW);
+        break;
+      case 'chlorinePump':
+        relayChlorinePump.write(command ? HIGH : LOW);
+        break;
+      case 'filterMotor':
+        relayFilterHead.write(command ? HIGH : LOW);
+        break;
     }
+    console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'} - ${message}`);
   });
 }
 
@@ -84,18 +73,15 @@ async function sendSensorData() {
     const sensorData = readSensorData();
     console.log('Collected Sensor Data:', sensorData);
 
-    // Apply Local KBS Rules
     const actions = evaluateRules(sensorData, { poolInfo: { minWaterLevel: 30, maxWaterLevel: 80, desiredTemperature: 28 } });
     controlActuators(actions);
     logToCSV(sensorData, actions);
 
-    // Send Sensor Data to Server
     const res = await axios.post(`${SERVER_URL}/sensor-data`, sensorData, {
       headers: { serialNumber: DEVICE_SERIAL },
     });
     console.log('Server Response:', res.data);
 
-    // Execute Actions Sent by the Server
     if (res.data.actions) {
       sendActionsToActuators(res.data.actions);
     }
@@ -104,7 +90,17 @@ async function sendSensorData() {
   }
 }
 
-// Main Execution Loop
-initializeCSV();
-setInterval(sendSensorData, 5000);
-console.log('Sensor Monitoring Initialized. Sending data every 5 seconds...');
+// Initialize GPIO and Start Monitoring
+init(() => {
+  console.log('Initializing GPIO Pins...');
+  waterSwitch = new DigitalInput({ pin: 'GPIO17' });
+  motionSensor = new DigitalInput({ pin: 'GPIO27' });
+  relayWaterIn = new DigitalOutput({ pin: 'GPIO18' });
+  relayWaterOut = new DigitalOutput({ pin: 'GPIO23' });
+  relayChlorinePump = new DigitalOutput({ pin: 'GPIO24' });
+  relayFilterHead = new DigitalOutput({ pin: 'GPIO25' });
+
+  initializeCSV();
+  setInterval(sendSensorData, 5000);
+  console.log('Sensor Monitoring Initialized. Sending data every 5 seconds...');
+});
