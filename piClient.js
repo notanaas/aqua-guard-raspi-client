@@ -12,7 +12,7 @@ const DEVICE_SERIAL = process.env.DEVICE_SERIAL; // Device Serial Number
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
 // GPIO Pins Configuration
-const waterLevelSwitch = new Gpio(17, 'in'); // Water level float switch
+const waterLevelSwitch = new Gpio(17, 'in'); // GPIO 17 (BCM Numbering)
 const motionSensor = new Gpio(27, 'in');     // Motion detection sensor
 
 // GPIO Relays for Actuators
