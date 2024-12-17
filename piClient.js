@@ -1,5 +1,6 @@
 const axios = require('axios');
-const {Gpio} = require('bindings')('pigpio.node');const fs = require('fs');
+const { Gpio } = require('pigpio'); // GPIO for GPIO pin handling
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 const { evaluateRules, sendActionsToActuators } = require('./kbs'); // Import KBS
