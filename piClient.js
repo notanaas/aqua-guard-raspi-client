@@ -1,5 +1,5 @@
-const { init } = require('raspi');
-const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
+const pigpio = require('pigpio');
+const { Gpio } = pigpio; // Import Gpio class
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
@@ -18,6 +18,9 @@ const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 // In-memory Token Storage
 let accessToken = null;
 let refreshToken = null;
+
+// GPIO Initialization
+let waterSwitch, motionSensor, relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
 
 // Initialize CSV Logging
 function initializeCSV() {
@@ -48,15 +51,12 @@ async function fetchAuthToken() {
 async function refreshAccessToken() {
   try {
     console.log('Refreshing access token...');
-    const response = await axios.post(REFRESH_ENDPOINT, {
-      refreshToken,
-    });
-
+    const response = await axios.post(REFRESH_ENDPOINT, { refreshToken });
     accessToken = response.data.accessToken;
     console.log('Access token refreshed.');
   } catch (error) {
     console.error('Error refreshing access token:', error.message);
-    accessToken = null; // Force re-login
+    accessToken = null;
   }
 }
 
@@ -72,10 +72,7 @@ async function sendToServer(sensorData, serverUrl) {
 
   try {
     const response = await axios.post(`${serverUrl}/api/devices/sensor-data`, sensorData, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        serialNumber: DEVICE_SERIAL,
-      },
+      headers: { Authorization: `Bearer ${accessToken}`, serialNumber: DEVICE_SERIAL },
     });
     console.log(`Data sent to ${serverUrl}:`, response.data);
     return response.data;
@@ -83,9 +80,7 @@ async function sendToServer(sensorData, serverUrl) {
     if (error.response && error.response.status === 401) {
       console.warn('Token expired. Attempting to refresh...');
       await refreshAccessToken();
-      if (accessToken) {
-        return sendToServer(sensorData, serverUrl); // Retry with refreshed token
-      }
+      if (accessToken) return sendToServer(sensorData, serverUrl);
     }
     console.error(`Error sending data to ${serverUrl}:`, error.message);
     return null;
@@ -98,16 +93,16 @@ function controlActuators(actions) {
     try {
       switch (actuator) {
         case 'waterFillPump':
-          relayWaterIn.write(command ? HIGH : LOW);
+          relayWaterIn.digitalWrite(command ? 1 : 0);
           break;
         case 'waterDrainPump':
-          relayWaterOut.write(command ? HIGH : LOW);
+          relayWaterOut.digitalWrite(command ? 1 : 0);
           break;
         case 'chlorinePump':
-          relayChlorinePump.write(command ? HIGH : LOW);
+          relayChlorinePump.digitalWrite(command ? 1 : 0);
           break;
         case 'filterMotor':
-          relayFilterHead.write(command ? HIGH : LOW);
+          relayFilterHead.digitalWrite(command ? 1 : 0);
           break;
       }
       console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'}`);
@@ -123,8 +118,8 @@ function readSensorData() {
     pH: (Math.random() * 14).toFixed(2),
     temperature: (20 + Math.random() * 10).toFixed(2),
     pressure: (Math.random() * 100).toFixed(2),
-    waterLevel: waterSwitch.read() === HIGH ? 100 : 0,
-    motion: motionSensor.read() === HIGH ? 1 : 0,
+    waterLevel: waterSwitch.digitalRead() ? 100 : 0,
+    motion: motionSensor.digitalRead() ? 1 : 0,
   };
 }
 
@@ -156,41 +151,42 @@ async function sendSensorData() {
   }
 }
 
+// Cleanup Function
 function cleanup() {
   console.log('Cleaning up GPIO pins and exiting...');
-  relayWaterIn.write(LOW);
-  relayWaterOut.write(LOW);
-  relayChlorinePump.write(LOW);
-  relayFilterHead.write(LOW);
-
+  relayWaterIn.digitalWrite(0);
+  relayWaterOut.digitalWrite(0);
+  relayChlorinePump.digitalWrite(0);
+  relayFilterHead.digitalWrite(0);
   process.exit();
 }
-process.on('SIGINT', cleanup); // Catch Ctrl+C
-process.on('SIGTERM', cleanup); // Catch termination signals
 
 // Initialize GPIO and Start Monitoring
-let waterSwitch, motionSensor, relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
-
-init(async () => {
+function initializeGPIO() {
   console.log('Initializing GPIO Pins...');
-  try {
-    waterSwitch = new DigitalInput({ pin: 'GPIO17' });
-    motionSensor = new DigitalInput({ pin: 'GPIO27' });
-    relayWaterIn = new DigitalOutput({ pin: 'GPIO18' });
-    relayWaterOut = new DigitalOutput({ pin: 'GPIO23' });
-    relayChlorinePump = new DigitalOutput({ pin: 'GPIO24' });
-    relayFilterHead = new DigitalOutput({ pin: 'GPIO25' });
+  waterSwitch = new Gpio(17, { mode: Gpio.INPUT, pullUpDown: Gpio.PUD_UP });
+  motionSensor = new Gpio(27, { mode: Gpio.INPUT, pullUpDown: Gpio.PUD_UP });
+  relayWaterIn = new Gpio(18, { mode: Gpio.OUTPUT });
+  relayWaterOut = new Gpio(23, { mode: Gpio.OUTPUT });
+  relayChlorinePump = new Gpio(24, { mode: Gpio.OUTPUT });
+  relayFilterHead = new Gpio(25, { mode: Gpio.OUTPUT });
+}
 
+// Start the Application
+(async () => {
+  try {
     initializeCSV();
+    initializeGPIO();
     console.log('Fetching initial auth token...');
     await fetchAuthToken();
 
     console.log('Monitoring initialized. Sending data every 5 seconds...');
     setInterval(sendSensorData, 5000);
 
-    process.on('SIGINT', cleanup);
+    process.on('SIGINT', cleanup); // Catch Ctrl+C
+    process.on('SIGTERM', cleanup); // Catch termination signals
   } catch (error) {
-    console.error('Error initializing GPIO:', error.message);
-    process.exit(1);
+    console.error('Error during initialization:', error.message);
+    cleanup();
   }
-});
+})();
