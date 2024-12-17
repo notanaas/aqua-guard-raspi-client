@@ -1,4 +1,4 @@
-const { Gpio } = require('onoff'); // Use 'onoff' for GPIO pin handling
+const { Gpio } = require('rpio'); // Use 'onoff' for GPIO pin handling
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
