@@ -156,15 +156,17 @@ async function sendSensorData() {
   }
 }
 
-// Graceful Shutdown
 function cleanup() {
   console.log('Cleaning up GPIO pins and exiting...');
   relayWaterIn.write(LOW);
   relayWaterOut.write(LOW);
   relayChlorinePump.write(LOW);
   relayFilterHead.write(LOW);
+
   process.exit();
 }
+process.on('SIGINT', cleanup); // Catch Ctrl+C
+process.on('SIGTERM', cleanup); // Catch termination signals
 
 // Initialize GPIO and Start Monitoring
 let waterSwitch, motionSensor, relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
