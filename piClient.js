@@ -1,6 +1,6 @@
 const axios = require('axios');
-const { Gpio } = require('onoff');
-const spi = require('spi-device');
+const Gpio = require('pigpio').Gpio;
+const spi = require('pigpio');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
