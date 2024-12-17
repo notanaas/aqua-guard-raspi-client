@@ -1,5 +1,5 @@
+const { Gpio } = require('onoff'); // Use 'onoff' for GPIO pin handling
 const axios = require('axios');
-const { Gpio } = require('pigpio'); // GPIO for GPIO pin handling
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
@@ -11,18 +11,14 @@ const DEVICE_SERIAL = process.env.DEVICE_SERIAL || 'DEFAULT_SERIAL';
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
 // GPIO Pins Configuration
-const waterLevelSwitch = new Gpio(17, { mode: Gpio.INPUT });
-const motionSensor = new Gpio(27, { mode: Gpio.INPUT });
+const waterLevelSwitch = new Gpio(17, 'in', 'both'); // Input with interrupt
+const motionSensor = new Gpio(27, 'in', 'both');
 
 // GPIO Relays for Actuators
-const relayWaterIn = new Gpio(18, { mode: Gpio.OUTPUT });
-const relayWaterOut = new Gpio(23, { mode: Gpio.OUTPUT });
-const relayChlorinePump = new Gpio(24, { mode: Gpio.OUTPUT });
-const relayFilterHead = new Gpio(25, { mode: Gpio.OUTPUT });
-
-// Placeholder for SPI ADC0834 - pigpio doesn't directly handle SPI
-const spi = require('pigpio').spi; // Simulated SPI placeholder
-let adc; // Placeholder for SPI communication setup
+const relayWaterIn = new Gpio(18, 'out');
+const relayWaterOut = new Gpio(23, 'out');
+const relayChlorinePump = new Gpio(24, 'out');
+const relayFilterHead = new Gpio(25, 'out');
 
 // Initialize CSV Logging
 function initializeCSV() {
@@ -31,24 +27,19 @@ function initializeCSV() {
   }
 }
 
-// Placeholder: SPI ADC Reading (needs actual implementation for ADC0834)
+// Simulated ADC Reading (as 'onoff' doesn't handle SPI)
 function readADC(channel) {
-  // Mock return for ADC values (simulate sensor voltages)
-  return (Math.random() * 3.3).toFixed(2);
+  return (Math.random() * 3.3).toFixed(2); // Mock sensor values
 }
 
 // Collect All Sensor Data
 async function collectSensorData() {
   return {
-    pH: (readADC(0) * 2).toFixed(2),           // CH0: pH Sensor
-    temperature: (readADC(1) * 10).toFixed(2), // CH1: Temperature Sensor
-    pressure: (readADC(2) * 50).toFixed(2),    // CH2: Pressure Sensor
-    waterLevel: waterLevelSwitch.digitalRead() ? 100 : 0, // Float switch
-    motion: motionSensor.digitalRead(),        // Motion detected (1/0)
-    chlorineLevel: 2,                          // Example chlorine level (hardcoded)
-    turbidity: 30,                             // Example turbidity value
-    weatherForecast: 'sunny',                  // Example weather data
-    poolBeingCleaned: false                    // Pool cleaning state
+    pH: (readADC(0) * 2).toFixed(2),
+    temperature: (readADC(1) * 10).toFixed(2),
+    pressure: (readADC(2) * 50).toFixed(2),
+    waterLevel: waterLevelSwitch.readSync(), // Float switch status
+    motion: motionSensor.readSync(), // Motion sensor status
   };
 }
 
@@ -63,7 +54,7 @@ function controlActuators(actions) {
 
   actions.forEach(({ actuator, command, message }) => {
     if (relayMap[actuator]) {
-      relayMap[actuator].digitalWrite(command ? 1 : 0);
+      relayMap[actuator].writeSync(command ? 1 : 0);
       console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'} - ${message}`);
     }
   });
@@ -73,8 +64,8 @@ function controlActuators(actions) {
 function logToCSV(sensorData, actions) {
   const timestamp = new Date().toISOString();
   const actionSummary = actions.map(a => `${a.actuator}:${a.command}`).join('|');
-
   const logEntry = `${timestamp},${sensorData.pH},${sensorData.temperature},${sensorData.pressure},${sensorData.waterLevel},${sensorData.motion},${actionSummary}\n`;
+
   fs.appendFileSync(LOG_FILE, logEntry);
   console.log('Logged to CSV:', logEntry.trim());
 }
@@ -85,18 +76,15 @@ async function sendSensorData() {
     const sensorData = await collectSensorData();
     console.log('Collected Sensor Data:', sensorData);
 
-    // Apply Local KBS
     const actions = evaluateRules(sensorData, { poolInfo: { minWaterLevel: 30, maxWaterLevel: 80, desiredTemperature: 28 } });
     controlActuators(actions);
     logToCSV(sensorData, actions);
 
-    // Send Sensor Data to Server
     const res = await axios.post(`${SERVER_URL}/sensor-data`, sensorData, {
       headers: { serialNumber: DEVICE_SERIAL },
     });
     console.log('Server Response:', res.data);
 
-    // Send Actions from Server to Actuators
     if (res.data.actions) {
       await sendActionsToActuators(res.data.actions);
     }
@@ -105,7 +93,7 @@ async function sendSensorData() {
   }
 }
 
-// Main Execution: Initialize CSV and Start Loop
+// Main Execution
 initializeCSV();
 setInterval(sendSensorData, 5000);
 console.log('Sensor Monitoring Initialized. Sending data every 5 seconds...');
