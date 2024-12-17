@@ -1,12 +1,12 @@
 const axios = require('axios');
-const { Gpio } = require('pigpio'); // GPIO for GPIO pin handling
+const  Gpio  = require('pigpio'); // GPIO for GPIO pin handling
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 const { evaluateRules, sendActionsToActuators } = require('./kbs'); // Import KBS
 
 // Environment Variables
-const SERVER_URL = process.env.MAIN_SERVER_URL || 'http://localhost:3000'; // Default local server
+const SERVER_URL = process.env.MAIN_SERVER_URL || 'http://localhost:3001'; // Default local server
 const DEVICE_SERIAL = process.env.DEVICE_SERIAL || 'DEFAULT_SERIAL';
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
