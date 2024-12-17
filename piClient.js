@@ -1,28 +1,28 @@
 const axios = require('axios');
-const Gpio = require('pigpio').Gpio;
-const spi = require('pigpio');
+const { Gpio } = require('pigpio'); // GPIO for GPIO pin handling
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 const { evaluateRules, sendActionsToActuators } = require('./kbs'); // Import KBS
 
 // Environment Variables
-const SERVER_URL = process.env.MAIN_SERVER_URL; // Main Server URL
-const DEVICE_SERIAL = process.env.DEVICE_SERIAL; // Device Serial Number
+const SERVER_URL = process.env.MAIN_SERVER_URL || 'http://localhost:3000'; // Default local server
+const DEVICE_SERIAL = process.env.DEVICE_SERIAL || 'DEFAULT_SERIAL';
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
 // GPIO Pins Configuration
-const waterLevelSwitch = new Gpio(17, 'in'); // GPIO 17 (BCM Numbering)
-const motionSensor = new Gpio(27, 'in');     // Motion detection sensor
+const waterLevelSwitch = new Gpio(17, { mode: Gpio.INPUT });
+const motionSensor = new Gpio(27, { mode: Gpio.INPUT });
 
 // GPIO Relays for Actuators
-const relayWaterIn = new Gpio(18, 'out');      // Relay for water fill pump
-const relayWaterOut = new Gpio(23, 'out');     // Relay for water drainage pump
-const relayChlorinePump = new Gpio(24, 'out'); // Relay for chlorine pump
-const relayFilterHead = new Gpio(25, 'out');   // Relay for filter head adjustment
+const relayWaterIn = new Gpio(18, { mode: Gpio.OUTPUT });
+const relayWaterOut = new Gpio(23, { mode: Gpio.OUTPUT });
+const relayChlorinePump = new Gpio(24, { mode: Gpio.OUTPUT });
+const relayFilterHead = new Gpio(25, { mode: Gpio.OUTPUT });
 
-// SPI ADC0834 Configuration
-const adc = spi.openSync(0, 0, { maxSpeedHz: 1000000 });
+// Placeholder for SPI ADC0834 - pigpio doesn't directly handle SPI
+const spi = require('pigpio').spi; // Simulated SPI placeholder
+let adc; // Placeholder for SPI communication setup
 
 // Initialize CSV Logging
 function initializeCSV() {
@@ -31,16 +31,10 @@ function initializeCSV() {
   }
 }
 
-// Function to Read from ADC0834
+// Placeholder: SPI ADC Reading (needs actual implementation for ADC0834)
 function readADC(channel) {
-  if (channel < 0 || channel > 3) throw new Error('Invalid ADC Channel');
-
-  const command = Buffer.from([1, (8 + channel) << 4, 0]);
-  const response = Buffer.alloc(3);
-
-  adc.transferSync([{ sendBuffer: command, receiveBuffer: response, byteLength: 3 }]);
-  const value = ((response[1] & 3) << 8) + response[2];
-  return (value * 3.3) / 255; // Convert to voltage (0-3.3V)
+  // Mock return for ADC values (simulate sensor voltages)
+  return (Math.random() * 3.3).toFixed(2);
 }
 
 // Collect All Sensor Data
@@ -49,9 +43,9 @@ async function collectSensorData() {
     pH: (readADC(0) * 2).toFixed(2),           // CH0: pH Sensor
     temperature: (readADC(1) * 10).toFixed(2), // CH1: Temperature Sensor
     pressure: (readADC(2) * 50).toFixed(2),    // CH2: Pressure Sensor
-    waterLevel: waterLevelSwitch.readSync() ? 100 : 0, // Float switch (0% or 100%)
-    motion: motionSensor.readSync(),           // Motion detected (1/0)
-    chlorineLevel: 2,                          // Example chlorine level (hardcoded for now)
+    waterLevel: waterLevelSwitch.digitalRead() ? 100 : 0, // Float switch
+    motion: motionSensor.digitalRead(),        // Motion detected (1/0)
+    chlorineLevel: 2,                          // Example chlorine level (hardcoded)
     turbidity: 30,                             // Example turbidity value
     weatherForecast: 'sunny',                  // Example weather data
     poolBeingCleaned: false                    // Pool cleaning state
@@ -69,7 +63,7 @@ function controlActuators(actions) {
 
   actions.forEach(({ actuator, command, message }) => {
     if (relayMap[actuator]) {
-      relayMap[actuator].writeSync(command ? 1 : 0);
+      relayMap[actuator].digitalWrite(command ? 1 : 0);
       console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'} - ${message}`);
     }
   });
@@ -87,26 +81,31 @@ function logToCSV(sensorData, actions) {
 
 // Send Sensor Data to Main Server
 async function sendSensorData() {
-  const sensorData = await collectSensorData();
-  console.log('Collected Sensor Data:', sensorData);
-
-  // Apply Local KBS
-  const actions = evaluateRules(sensorData, { poolInfo: { minWaterLevel: 30, maxWaterLevel: 80, desiredTemperature: 28 } });
-  controlActuators(actions);
-  logToCSV(sensorData, actions);
-
-  // Send Actions to Server
   try {
+    const sensorData = await collectSensorData();
+    console.log('Collected Sensor Data:', sensorData);
+
+    // Apply Local KBS
+    const actions = evaluateRules(sensorData, { poolInfo: { minWaterLevel: 30, maxWaterLevel: 80, desiredTemperature: 28 } });
+    controlActuators(actions);
+    logToCSV(sensorData, actions);
+
+    // Send Sensor Data to Server
     const res = await axios.post(`${SERVER_URL}/sensor-data`, sensorData, {
       headers: { serialNumber: DEVICE_SERIAL },
     });
     console.log('Server Response:', res.data);
-    if (res.data.actions) await sendActionsToActuators(res.data.actions);
+
+    // Send Actions from Server to Actuators
+    if (res.data.actions) {
+      await sendActionsToActuators(res.data.actions);
+    }
   } catch (error) {
-    console.error('Error sending data to server:', error.message);
+    console.error('Error in sendSensorData:', error.message);
   }
 }
 
-// Main Loop to Send Data Every 5 Seconds
+// Main Execution: Initialize CSV and Start Loop
 initializeCSV();
 setInterval(sendSensorData, 5000);
+console.log('Sensor Monitoring Initialized. Sending data every 5 seconds...');

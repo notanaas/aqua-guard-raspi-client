@@ -10,6 +10,7 @@
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
     "onoff": "^6.0.3",
+    "pigpio": "^3.3.1",
     "spi-device": "^2.0.9"
   },
   "devDependencies": {
