@@ -1,8 +1,9 @@
-const pigpio = require('pigpio');
-const { Gpio } = pigpio; // Import Gpio class
-const axios = require('axios');
+const { init } = require('raspi');
+const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
+const I2C = require('raspi-i2c').I2C;
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 require('dotenv').config();
 const { evaluateRules, sendActionsToActuators } = require('./kbs');
 
@@ -11,21 +12,29 @@ const PRIMARY_SERVER = process.env.PRIMARY_SERVER || 'http://192.168.1.15:3001';
 const BACKUP_SERVER = process.env.BACKUP_SERVER || 'http://localhost:3001';
 const DEVICE_SERIAL = process.env.DEVICE_SERIAL || 'UNKNOWN_SERIAL';
 const DEVICE_PASSWORD = process.env.DEVICE_PASSWORD || 'default_password';
-const LOGIN_ENDPOINT = process.env.LOGIN_ENDPOINT || `${PRIMARY_SERVER}/api/auth/login`;
-const REFRESH_ENDPOINT = process.env.REFRESH_ENDPOINT || `${PRIMARY_SERVER}/api/auth/refresh-token`;
+const LOGIN_ENDPOINT = `${PRIMARY_SERVER}/api/auth/login`;
+const REFRESH_ENDPOINT = `${PRIMARY_SERVER}/api/auth/refresh-token`;
 const LOG_FILE = path.join(__dirname, 'logs', 'sensor_actions_log.csv');
 
 // In-memory Token Storage
 let accessToken = null;
 let refreshToken = null;
 
-// GPIO Initialization
-let waterSwitch, motionSensor, relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
+// GPIO Pin Assignments
+let waterSwitch, motionSensor;
+let relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
+let adc; // ADC0834 SPI instance
+
+// I2C Configuration for UV Sensor
+const i2c = new I2C();
+const UV_SENSOR_ADDR = 0x38; // CJMCU-6070 I2C address
 
 // Initialize CSV Logging
 function initializeCSV() {
+  const logDir = path.dirname(LOG_FILE);
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
   if (!fs.existsSync(LOG_FILE)) {
-    fs.writeFileSync(LOG_FILE, 'Timestamp,pH,Temperature,Pressure,WaterLevel,Motion,Actions\n');
+    fs.writeFileSync(LOG_FILE, 'Timestamp,pH,Temperature,Pressure,Current,WaterLevel,UV,Motion,Actions\n');
     console.log('Created log file:', LOG_FILE);
   }
 }
@@ -34,57 +43,48 @@ function initializeCSV() {
 async function fetchAuthToken() {
   try {
     console.log('Fetching auth token...');
-    const response = await axios.post(LOGIN_ENDPOINT, {
-      loginIdentifier: DEVICE_SERIAL,
-      password: DEVICE_PASSWORD,
-    });
-
-    accessToken = response.data.accessToken; // Get access token
-    refreshToken = response.data.refreshToken; // Get refresh token
-    console.log('Successfully fetched access token.');
+    const response = await axios.post(LOGIN_ENDPOINT, { loginIdentifier: DEVICE_SERIAL, password: DEVICE_PASSWORD });
+    accessToken = response.data.accessToken;
+    refreshToken = response.data.refreshToken;
+    console.log('Successfully fetched auth token.');
   } catch (error) {
     console.error('Error fetching auth token:', error.message);
     accessToken = null;
   }
 }
 
-async function refreshAccessToken() {
+// Sensor Data Reading
+function readUVSensor() {
   try {
-    console.log('Refreshing access token...');
-    const response = await axios.post(REFRESH_ENDPOINT, { refreshToken });
-    accessToken = response.data.accessToken;
-    console.log('Access token refreshed.');
-  } catch (error) {
-    console.error('Error refreshing access token:', error.message);
-    accessToken = null;
+    const uvData = i2c.readByteSync(UV_SENSOR_ADDR, 0x00); // Read UV intensity
+    return uvData / 256; // Normalize data (example scaling)
+  } catch (err) {
+    console.error('Error reading UV sensor:', err.message);
+    return 0;
   }
 }
 
-// Send Sensor Data to Server
-async function sendToServer(sensorData, serverUrl) {
-  if (!accessToken) {
-    await fetchAuthToken();
-    if (!accessToken) {
-      console.error('Failed to retrieve access token. Aborting request.');
-      return null;
-    }
-  }
-
+function readADC(channel) {
   try {
-    const response = await axios.post(`${serverUrl}/api/devices/sensor-data`, sensorData, {
-      headers: { Authorization: `Bearer ${accessToken}`, serialNumber: DEVICE_SERIAL },
-    });
-    console.log(`Data sent to ${serverUrl}:`, response.data);
-    return response.data;
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      console.warn('Token expired. Attempting to refresh...');
-      await refreshAccessToken();
-      if (accessToken) return sendToServer(sensorData, serverUrl);
-    }
-    console.error(`Error sending data to ${serverUrl}:`, error.message);
-    return null;
+    // Replace with actual SPI communication code for ADC0834
+    // Mock example: random data between 0-5V
+    return (Math.random() * 5).toFixed(2);
+  } catch (err) {
+    console.error(`Error reading ADC channel ${channel}:`, err.message);
+    return 0;
   }
+}
+
+function readSensorData() {
+  return {
+    pH: readADC(0), // CH0
+    temperature: readADC(1), // CH1
+    pressure: readADC(2), // CH2
+    current: readADC(3), // CH3
+    waterLevel: waterSwitch.read() === HIGH ? 100 : 0,
+    uvIntensity: readUVSensor(),
+    motion: motionSensor.read() === HIGH ? 1 : 0,
+  };
 }
 
 // Control Actuators
@@ -92,18 +92,10 @@ function controlActuators(actions) {
   actions.forEach(({ actuator, command }) => {
     try {
       switch (actuator) {
-        case 'waterFillPump':
-          relayWaterIn.digitalWrite(command ? 1 : 0);
-          break;
-        case 'waterDrainPump':
-          relayWaterOut.digitalWrite(command ? 1 : 0);
-          break;
-        case 'chlorinePump':
-          relayChlorinePump.digitalWrite(command ? 1 : 0);
-          break;
-        case 'filterMotor':
-          relayFilterHead.digitalWrite(command ? 1 : 0);
-          break;
+        case 'waterFillPump': relayWaterIn.write(command ? HIGH : LOW); break;
+        case 'waterDrainPump': relayWaterOut.write(command ? HIGH : LOW); break;
+        case 'chlorinePump': relayChlorinePump.write(command ? HIGH : LOW); break;
+        case 'filterMotor': relayFilterHead.write(command ? HIGH : LOW); break;
       }
       console.log(`Actuator ${actuator} set to ${command ? 'ON' : 'OFF'}`);
     } catch (error) {
@@ -112,81 +104,60 @@ function controlActuators(actions) {
   });
 }
 
-// Simulated Sensor Data
-function readSensorData() {
-  return {
-    pH: (Math.random() * 14).toFixed(2),
-    temperature: (20 + Math.random() * 10).toFixed(2),
-    pressure: (Math.random() * 100).toFixed(2),
-    waterLevel: waterSwitch.digitalRead() ? 100 : 0,
-    motion: motionSensor.digitalRead() ? 1 : 0,
-  };
-}
-
 // Log Data to CSV
 function logToCSV(sensorData, actions) {
   const timestamp = new Date().toISOString();
   const actionSummary = actions.map(a => `${a.actuator}:${a.command}`).join('|');
-  const logEntry = `${timestamp},${sensorData.pH},${sensorData.temperature},${sensorData.pressure},${sensorData.waterLevel},${sensorData.motion},${actionSummary}\n`;
+  const logEntry = `${timestamp},${sensorData.pH},${sensorData.temperature},${sensorData.pressure},${sensorData.current},${sensorData.waterLevel},${sensorData.uvIntensity},${sensorData.motion},${actionSummary}\n`;
   fs.appendFileSync(LOG_FILE, logEntry);
-  console.log('Logged to CSV:', logEntry.trim());
 }
 
-// Send Sensor Data
+// Send Data to Server
 async function sendSensorData() {
   const sensorData = readSensorData();
   console.log('Collected Sensor Data:', sensorData);
 
-  let serverResponse = await sendToServer(sensorData, PRIMARY_SERVER);
-  if (!serverResponse) {
-    console.warn('Switching to backup server...');
-    serverResponse = await sendToServer(sensorData, BACKUP_SERVER);
-  }
-
-  if (serverResponse && serverResponse.actions) {
-    controlActuators(serverResponse.actions);
-    logToCSV(sensorData, serverResponse.actions);
-  } else {
-    console.error('Failed to send data to both servers.');
+  try {
+    const response = await axios.post(`${PRIMARY_SERVER}/api/devices/sensor-data`, sensorData, {
+      headers: { Authorization: `Bearer ${accessToken}`, serialNumber: DEVICE_SERIAL },
+    });
+    controlActuators(response.data.actions);
+    logToCSV(sensorData, response.data.actions);
+  } catch (error) {
+    console.error('Error sending data to server:', error.message);
   }
 }
 
-// Cleanup Function
+// Cleanup GPIO
 function cleanup() {
-  console.log('Cleaning up GPIO pins and exiting...');
-  relayWaterIn.digitalWrite(0);
-  relayWaterOut.digitalWrite(0);
-  relayChlorinePump.digitalWrite(0);
-  relayFilterHead.digitalWrite(0);
+  console.log('Cleaning up GPIO pins...');
+  relayWaterIn?.write(LOW);
+  relayWaterOut?.write(LOW);
+  relayChlorinePump?.write(LOW);
+  relayFilterHead?.write(LOW);
   process.exit();
 }
 
-// Initialize GPIO and Start Monitoring
-function initializeGPIO() {
-  console.log('Initializing GPIO Pins...');
-  waterSwitch = new Gpio(17, { mode: Gpio.INPUT, pullUpDown: Gpio.PUD_UP });
-  motionSensor = new Gpio(27, { mode: Gpio.INPUT, pullUpDown: Gpio.PUD_UP });
-  relayWaterIn = new Gpio(18, { mode: Gpio.OUTPUT });
-  relayWaterOut = new Gpio(23, { mode: Gpio.OUTPUT });
-  relayChlorinePump = new Gpio(24, { mode: Gpio.OUTPUT });
-  relayFilterHead = new Gpio(25, { mode: Gpio.OUTPUT });
-}
-
-// Start the Application
-(async () => {
+// Initialize System
+init(async () => {
+  console.log('Initializing GPIO and sensors...');
   try {
-    initializeCSV();
-    initializeGPIO();
-    console.log('Fetching initial auth token...');
-    await fetchAuthToken();
+    waterSwitch = new DigitalInput({ pin: 'GPIO17' });
+    motionSensor = new DigitalInput({ pin: 'GPIO27' });
+    relayWaterIn = new DigitalOutput({ pin: 'GPIO18' });
+    relayWaterOut = new DigitalOutput({ pin: 'GPIO23' });
+    relayChlorinePump = new DigitalOutput({ pin: 'GPIO24' });
+    relayFilterHead = new DigitalOutput({ pin: 'GPIO25' });
 
-    console.log('Monitoring initialized. Sending data every 5 seconds...');
+    initializeCSV();
+    await fetchAuthToken();
+    console.log('System initialized. Starting data collection...');
     setInterval(sendSensorData, 5000);
 
-    process.on('SIGINT', cleanup); // Catch Ctrl+C
-    process.on('SIGTERM', cleanup); // Catch termination signals
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
   } catch (error) {
-    console.error('Error during initialization:', error.message);
+    console.error('Initialization error:', error.message);
     cleanup();
   }
-})();
+});
