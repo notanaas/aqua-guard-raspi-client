@@ -1,0 +1,14 @@
+{
+    "name": "aqua-guard-raspi-client",
+    "version": "1.0.0",
+    "scripts": {
+      "start": "node piClient.js"
+    },
+    "dependencies": {
+      "axios": "^1.4.0",
+      "onoff": "^6.0.2",
+      "spi-device": "^2.0.3",
+      "dotenv": "^16.0.3"
+    }
+  }
+  
