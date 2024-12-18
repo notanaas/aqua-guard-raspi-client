@@ -2,7 +2,7 @@
 const { init } = require('raspi');
 const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
 const I2C = require('raspi-i2c').I2C;
-const SPI = require('raspi-spi');
+const spi = require('spi-device');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -147,8 +147,13 @@ function cleanup() {
 init(async () => {
   console.log('Initializing GPIO and sensors...');
   try {
-    spi = new SPI.SPI();
-    spi.open();
+    const spiDevice = spi.open(0, 0, (err) => {
+      if (err) {
+        console.error('Error opening SPI device:', err.message);
+      } else {
+        console.log('SPI device opened successfully');
+      }
+    });
 
     waterSwitch = new DigitalInput({ pin: 'GPIO17' });
     motionSensor = new DigitalInput({ pin: 'GPIO27' });
