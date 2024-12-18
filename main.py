@@ -45,6 +45,23 @@ def initialize_csv():
     except Exception as e:
         print(f"Error initializing CSV: {e}")
 
+# Test GPIO Pins
+def test_gpio():
+    print("Testing GPIO Pins...")
+    try:
+        for pin in [WATER_SWITCH_PIN, MOTION_SENSOR_PIN]:
+            GPIO.setup(pin, GPIO.IN)
+            print(f"Pin {pin} Input State: {GPIO.input(pin)}")
+
+        for pin in [RELAY_WATER_IN_PIN, RELAY_WATER_OUT_PIN, RELAY_CHLORINE_PUMP_PIN, RELAY_FILTER_HEAD_PIN]:
+            GPIO.setup(pin, GPIO.OUT)
+            GPIO.output(pin, GPIO.HIGH)
+            time.sleep(0.1)
+            GPIO.output(pin, GPIO.LOW)
+            print(f"Pin {pin} toggled successfully")
+    except Exception as e:
+        print(f"Error testing GPIO: {e}")
+
 # Read UV Sensor
 def read_uv_sensor():
     try:
@@ -58,14 +75,16 @@ def read_uv_sensor():
 # Read ADC (Mock)
 def read_adc(channel):
     try:
-        return round((channel + 1) * 0.5, 2)
+        value = channel * 0.5  # Replace with actual ADC read logic
+        print(f"ADC Channel {channel}: {value}")
+        return value
     except Exception as e:
         print(f"Error reading ADC channel {channel}: {e}")
         return 0
 
 # Read Sensors
 def read_sensors():
-    return {
+    data = {
         "pH": read_adc(0),
         "temperature": read_adc(1),
         "pressure": read_adc(2),
@@ -74,12 +93,14 @@ def read_sensors():
         "uv": read_uv_sensor(),
         "motion": GPIO.input(MOTION_SENSOR_PIN),
     }
+    print("Sensor Readings:", data)  # Debugging output
+    return data
 
 # Execute Actions
 def execute_actions(actions):
     for action in actions:
         actuator = action.get("actuator")
-        command = action.get("command")
+        command = GPIO.HIGH if action.get("command") == "ON" else GPIO.LOW
         if actuator == "waterIn":
             GPIO.output(RELAY_WATER_IN_PIN, command)
         elif actuator == "waterOut":
@@ -88,7 +109,7 @@ def execute_actions(actions):
             GPIO.output(RELAY_CHLORINE_PUMP_PIN, command)
         elif actuator == "filterHead":
             GPIO.output(RELAY_FILTER_HEAD_PIN, command)
-        print(f"Executed action: {actuator} set to {command}")
+        print(f"Executed action: {actuator}, Command: {command}")
 
 # Log Data
 def log_data(sensor_data, actions):
@@ -115,18 +136,27 @@ def log_data(sensor_data, actions):
 def send_data(sensor_data):
     try:
         headers = {
-            "Content-Type": "application/json",
             "serialNumber": SERIAL_NUMBER,
+            "Content-Type": "application/json",
         }
-        payload = sensor_data
+        payload = {
+            "pH": sensor_data["pH"],
+            "temperature": sensor_data["temperature"],
+            "pressure": sensor_data["pressure"],
+            "current": sensor_data["current"],
+            "waterLevel": sensor_data["waterLevel"],
+            "uv": sensor_data["uv"],
+            "motion": sensor_data["motion"],
+        }
+        print("Sending Payload:", payload)  # Debugging payload
         response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload, headers=headers)
-        if response.status_code == 400:
-            print(f"400 Error: {response.text}")  # Log the detailed error
-        response.raise_for_status()  # Raise exception for HTTP errors
+        response.raise_for_status()
         response_data = response.json()
         actions = response_data.get("actions", [])
         execute_actions(actions)
         log_data(sensor_data, actions)
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP Error: {e.response.status_code} - {e.response.text}")
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
     except Exception as e:
@@ -140,6 +170,7 @@ def cleanup():
 if __name__ == "__main__":
     try:
         initialize_csv()
+        test_gpio()  # Test GPIO pins
         while True:
             sensor_data = read_sensors()
             print("Sensor Data:", sensor_data)
