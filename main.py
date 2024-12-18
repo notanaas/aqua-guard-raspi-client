@@ -99,17 +99,28 @@ def log_data(sensor_data, actions):
 # Send Data to Server
 def send_data(sensor_data):
     try:
-        payload = {
-            "serialNumber": SERIAL_NUMBER,
-            "sensorData": sensor_data,
+        headers = {
+            "serialNumber": SERIAL_NUMBER,  # Add serial number to headers
+            "Content-Type": "application/json",
         }
-        response = requests.post(f"{API_BASE_URL}/api/device/sensor-data", json=payload)
-        response.raise_for_status()  # Raise error for bad status codes
+        payload = {
+            "sensorData": sensor_data,  # Send sensor data in the body
+        }
+        print("Payload:", payload)  # Debugging payload
+        print("Headers:", headers)  # Debugging headers
+        response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload, headers=headers)
+        print("Response Status Code:", response.status_code)  # Debugging response
+        print("Response Text:", response.text)  # Debugging response body
+        response.raise_for_status()  # Raise an exception for HTTP errors
         response_data = response.json()
         actions = response_data.get("actions", [])
         log_data(sensor_data, actions)
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {e}")
+    except ValueError as e:
+        print(f"Invalid JSON response: {e}")
     except Exception as e:
-        print(f"Error sending data to server: {e}")
+        print(f"Unexpected error: {e}")
 
 # Cleanup
 def cleanup():
