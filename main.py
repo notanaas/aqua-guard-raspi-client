@@ -23,7 +23,7 @@ UV_SENSOR_ADDR = 0x38
 
 # Backend API Configuration
 API_BASE_URL = os.getenv("API_URL", "http://192.168.1.15:3001/api/devices")
-SERIAL_NUMBER = os.getenv("SERIAL_NUMBER", "DEV-1234567890")  # Replace with actual serial number
+SERIAL_NUMBER = os.getenv("SERIAL_NUMBER", "DEV-1234567890")
 LOG_FILE = "sensor_log.csv"
 
 # Setup GPIO
@@ -50,7 +50,7 @@ def read_uv_sensor():
     try:
         bus = smbus2.SMBus(I2C_BUS)
         uv_data = bus.read_byte(UV_SENSOR_ADDR)
-        return uv_data / 256.0  # Normalize
+        return uv_data / 256.0
     except Exception as e:
         print(f"Error reading UV sensor: {e}")
         return 0
@@ -58,7 +58,7 @@ def read_uv_sensor():
 # Read ADC (Mock)
 def read_adc(channel):
     try:
-        return round((channel + 1) * 0.5, 2)  # Mock value
+        return round((channel + 1) * 0.5, 2)
     except Exception as e:
         print(f"Error reading ADC channel {channel}: {e}")
         return 0
@@ -71,9 +71,24 @@ def read_sensors():
         "pressure": read_adc(2),
         "current": read_adc(3),
         "waterLevel": GPIO.input(WATER_SWITCH_PIN),
-        "uvIntensity": read_uv_sensor(),
+        "uv": read_uv_sensor(),
         "motion": GPIO.input(MOTION_SENSOR_PIN),
     }
+
+# Execute Actions
+def execute_actions(actions):
+    for action in actions:
+        actuator = action.get("actuator")
+        command = action.get("command")
+        if actuator == "waterIn":
+            GPIO.output(RELAY_WATER_IN_PIN, command)
+        elif actuator == "waterOut":
+            GPIO.output(RELAY_WATER_OUT_PIN, command)
+        elif actuator == "chlorinePump":
+            GPIO.output(RELAY_CHLORINE_PUMP_PIN, command)
+        elif actuator == "filterHead":
+            GPIO.output(RELAY_FILTER_HEAD_PIN, command)
+        print(f"Executed action: {actuator} set to {command}")
 
 # Log Data
 def log_data(sensor_data, actions):
@@ -89,7 +104,7 @@ def log_data(sensor_data, actions):
                 sensor_data["pressure"],
                 sensor_data["current"],
                 sensor_data["waterLevel"],
-                sensor_data["uvIntensity"],
+                sensor_data["uv"],
                 sensor_data["motion"],
                 action_summary,
             ])
@@ -100,20 +115,18 @@ def log_data(sensor_data, actions):
 def send_data(sensor_data):
     try:
         headers = {
-            "serialNumber": SERIAL_NUMBER,  # Add serial number to headers
+            "serialNumber": SERIAL_NUMBER,
             "Content-Type": "application/json",
         }
-        payload = {
-            "sensorData": sensor_data,  # Send sensor data in the body
-        }
-        print("Payload:", payload)  # Debugging payload
-        print("Headers:", headers)  # Debugging headers
+        payload = {"pH": sensor_data["pH"], "temperature": sensor_data["temperature"], 
+                   "pressure": sensor_data["pressure"], "current": sensor_data["current"], 
+                   "waterLevel": sensor_data["waterLevel"], "uv": sensor_data["uv"], 
+                   "motion": sensor_data["motion"]}
         response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload, headers=headers)
-        print("Response Status Code:", response.status_code)  # Debugging response
-        print("Response Text:", response.text)  # Debugging response body
-        response.raise_for_status()  # Raise an exception for HTTP errors
+        response.raise_for_status()
         response_data = response.json()
         actions = response_data.get("actions", [])
+        execute_actions(actions)
         log_data(sensor_data, actions)
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
@@ -130,7 +143,6 @@ def cleanup():
 if __name__ == "__main__":
     try:
         initialize_csv()
-
         while True:
             sensor_data = read_sensors()
             print("Sensor Data:", sensor_data)
