@@ -97,19 +97,25 @@ def read_sensors():
     return data
 
 # Execute Actions
+# Execute Actions
 def execute_actions(actions):
     for action in actions:
         actuator = action.get("actuator")
         command = GPIO.HIGH if action.get("command") == "ON" else GPIO.LOW
-        if actuator == "waterIn":
-            GPIO.output(RELAY_WATER_IN_PIN, command)
-        elif actuator == "waterOut":
-            GPIO.output(RELAY_WATER_OUT_PIN, command)
-        elif actuator == "chlorinePump":
-            GPIO.output(RELAY_CHLORINE_PUMP_PIN, command)
-        elif actuator == "filterHead":
-            GPIO.output(RELAY_FILTER_HEAD_PIN, command)
-        print(f"Executed action: {actuator}, Command: {command}")
+        try:
+            if actuator == "waterIn":
+                GPIO.output(RELAY_WATER_IN_PIN, command)
+            elif actuator == "waterOut":
+                GPIO.output(RELAY_WATER_OUT_PIN, command)
+            elif actuator == "chlorinePump":
+                GPIO.output(RELAY_CHLORINE_PUMP_PIN, command)
+            elif actuator == "filterHead":
+                GPIO.output(RELAY_FILTER_HEAD_PIN, command)
+            print(f"Executed action: {actuator}, Command: {command}")
+            print(f"Confirmation: {actuator} successfully set to {'ON' if command == GPIO.HIGH else 'OFF'}")
+        except Exception as e:
+            print(f"Error executing action for {actuator}: {e}")
+
 
 # Log Data
 def log_data(sensor_data, actions):
@@ -161,6 +167,21 @@ def send_data(sensor_data):
         print(f"Request error: {e}")
     except Exception as e:
         print(f"Unexpected error: {e}")
+def send_command_confirmation(actuator, command):
+    try:
+        payload = {
+            "actuator": actuator,
+            "status": "success",
+            "command": "ON" if command == GPIO.HIGH else "OFF"
+        }
+        response = requests.post(f"{API_BASE_URL}/command-confirmation", json=payload)
+        response.raise_for_status()
+        print(f"Command confirmation sent for {actuator}: {payload}")
+    except Exception as e:
+        print(f"Error sending command confirmation for {actuator}: {e}")
+
+# Include this in the loop of `execute_actions`
+        send_command_confirmation(actuator, command)
 
 # Cleanup
 def cleanup():
