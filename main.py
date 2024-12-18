@@ -4,7 +4,10 @@ import time
 import csv
 import requests
 import os
+import json
+import threading
 from dotenv import load_dotenv
+from websocket import WebSocketApp
 
 # Load environment variables
 load_dotenv()
@@ -12,17 +15,20 @@ load_dotenv()
 # GPIO Pins
 WATER_SWITCH_PIN = 26
 MOTION_SENSOR_PIN = 27
-RELAY_WATER_IN_PIN = 18
-RELAY_WATER_OUT_PIN = 23
-RELAY_CHLORINE_PUMP_PIN = 24
-RELAY_FILTER_HEAD_PIN = 25
+RELAY_PINS = {
+    "waterIn": 18,
+    "waterOut": 23,
+    "chlorinePump": 24,
+    "filterHead": 25,
+}
 
 # I2C Configuration
 I2C_BUS = 1
 UV_SENSOR_ADDR = 0x38
 
-# Backend API Configuration
+# Backend API and WebSocket Configuration
 API_BASE_URL = os.getenv("API_URL", "http://192.168.1.15:3001/api/devices")
+WS_URL = "ws://192.168.1.15:3001"
 SERIAL_NUMBER = os.getenv("SERIAL_NUMBER", "DEV-1234567890")
 LOG_FILE = "sensor_log.csv"
 
@@ -30,10 +36,9 @@ LOG_FILE = "sensor_log.csv"
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(WATER_SWITCH_PIN, GPIO.IN)
 GPIO.setup(MOTION_SENSOR_PIN, GPIO.IN)
-GPIO.setup(RELAY_WATER_IN_PIN, GPIO.OUT)
-GPIO.setup(RELAY_WATER_OUT_PIN, GPIO.OUT)
-GPIO.setup(RELAY_CHLORINE_PUMP_PIN, GPIO.OUT)
-GPIO.setup(RELAY_FILTER_HEAD_PIN, GPIO.OUT)
+
+for pin in RELAY_PINS.values():
+    GPIO.setup(pin, GPIO.OUT)
 
 # Initialize CSV Logging
 def initialize_csv():
@@ -50,11 +55,9 @@ def test_gpio():
     print("Testing GPIO Pins...")
     try:
         for pin in [WATER_SWITCH_PIN, MOTION_SENSOR_PIN]:
-            GPIO.setup(pin, GPIO.IN)
             print(f"Pin {pin} Input State: {GPIO.input(pin)}")
 
-        for pin in [RELAY_WATER_IN_PIN, RELAY_WATER_OUT_PIN, RELAY_CHLORINE_PUMP_PIN, RELAY_FILTER_HEAD_PIN]:
-            GPIO.setup(pin, GPIO.OUT)
+        for pin in RELAY_PINS.values():
             GPIO.output(pin, GPIO.HIGH)
             time.sleep(0.1)
             GPIO.output(pin, GPIO.LOW)
@@ -97,25 +100,16 @@ def read_sensors():
     return data
 
 # Execute Actions
-# Execute Actions
 def execute_actions(actions):
     for action in actions:
         actuator = action.get("actuator")
         command = GPIO.HIGH if action.get("command") == "ON" else GPIO.LOW
         try:
-            if actuator == "waterIn":
-                GPIO.output(RELAY_WATER_IN_PIN, command)
-            elif actuator == "waterOut":
-                GPIO.output(RELAY_WATER_OUT_PIN, command)
-            elif actuator == "chlorinePump":
-                GPIO.output(RELAY_CHLORINE_PUMP_PIN, command)
-            elif actuator == "filterHead":
-                GPIO.output(RELAY_FILTER_HEAD_PIN, command)
-            print(f"Executed action: {actuator}, Command: {command}")
-            print(f"Confirmation: {actuator} successfully set to {'ON' if command == GPIO.HIGH else 'OFF'}")
+            if actuator in RELAY_PINS:
+                GPIO.output(RELAY_PINS[actuator], command)
+                print(f"Executed action: {actuator}, Command: {'ON' if command == GPIO.HIGH else 'OFF'}")
         except Exception as e:
             print(f"Error executing action for {actuator}: {e}")
-
 
 # Log Data
 def log_data(sensor_data, actions):
@@ -161,44 +155,65 @@ def send_data(sensor_data):
         actions = response_data.get("actions", [])
         execute_actions(actions)
         log_data(sensor_data, actions)
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error: {e.response.status_code} - {e.response.text}")
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-def send_command_confirmation(actuator, command):
-    try:
-        payload = {
-            "actuator": actuator,
-            "status": "success",
-            "command": "ON" if command == GPIO.HIGH else "OFF"
-        }
-        response = requests.post(f"{API_BASE_URL}/command-confirmation", json=payload)
-        response.raise_for_status()
-        print(f"Command confirmation sent for {actuator}: {payload}")
-    except Exception as e:
-        print(f"Error sending command confirmation for {actuator}: {e}")
 
-# Include this in the loop of `execute_actions`
-        send_command_confirmation(actuator, command)
+# WebSocket Handlers
+def on_message(ws, message):
+    data = json.loads(message)
+    if data["type"] == "command":
+        actuator = data["actuator"]
+        command = GPIO.HIGH if data["command"] == "ON" else GPIO.LOW
+        if actuator in RELAY_PINS:
+            GPIO.output(RELAY_PINS[actuator], command)
+            print(f"Executed {actuator}: {'ON' if command == GPIO.HIGH else 'OFF'}")
+            ws.send(json.dumps({
+                "type": "acknowledgment",
+                "serialNumber": SERIAL_NUMBER,
+                "actuator": actuator,
+                "status": "success",
+                "command": data["command"],
+            }))
 
-# Cleanup
-def cleanup():
-    GPIO.cleanup()
+def on_error(ws, error):
+    print("WebSocket Error:", error)
+
+def on_close(ws, close_status_code, close_msg):
+    print("WebSocket Closed:", close_status_code, close_msg)
+
+def on_open(ws):
+    ws.send(json.dumps({
+        "type": "register",
+        "serialNumber": SERIAL_NUMBER,
+    }))
+
+def start_websocket():
+    ws = WebSocketApp(
+        WS_URL,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close,
+    )
+    ws.on_open = on_open
+    ws.run_forever()
 
 # Main Loop
 if __name__ == "__main__":
     try:
         initialize_csv()
         test_gpio()  # Test GPIO pins
+
+        # Start WebSocket in a separate thread
+        thread = threading.Thread(target=start_websocket)
+        thread.daemon = True
+        thread.start()
+
         while True:
             sensor_data = read_sensors()
-            print("Sensor Data:", sensor_data)
             send_data(sensor_data)
             time.sleep(5)
     except KeyboardInterrupt:
-        cleanup()
+        GPIO.cleanup()
     except Exception as e:
         print(f"An error occurred: {e}")
-        cleanup()
+        GPIO.cleanup()
