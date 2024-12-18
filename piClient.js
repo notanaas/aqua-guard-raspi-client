@@ -1,6 +1,8 @@
+// Required Modules
 const { init } = require('raspi');
 const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
 const I2C = require('raspi-i2c').I2C;
+const SPI = require('raspi-soft-spi').SoftSPI;
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -23,7 +25,14 @@ let refreshToken = null;
 // GPIO Pin Assignments
 let waterSwitch, motionSensor;
 let relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
-let adc; // ADC0834 SPI instance
+
+// ADC SPI Configuration
+const spi = new SPI({
+  clockPin: 11, // SCLK
+  mosiPin: 10, // MOSI
+  misoPin: 9,  // MISO
+  chipSelectPin: 8, // CS
+});
 
 // I2C Configuration for UV Sensor
 const i2c = new I2C();
@@ -66,9 +75,11 @@ function readUVSensor() {
 
 function readADC(channel) {
   try {
-    // Replace with actual SPI communication code for ADC0834
-    // Mock example: random data between 0-5V
-    return (Math.random() * 5).toFixed(2);
+    const command = 0xC0 | ((channel & 0x03) << 4); // Command to select channel
+    spi.write([command, 0x00]);
+    const [_, response] = spi.transfer([command, 0x00]);
+    const adcValue = ((response & 0xFF) << 8) | (response & 0xFF);
+    return (adcValue * 3.3) / 1023; // Convert to voltage
   } catch (err) {
     console.error(`Error reading ADC channel ${channel}:`, err.message);
     return 0;
