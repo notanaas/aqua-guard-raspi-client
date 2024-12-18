@@ -26,8 +26,6 @@ let refreshToken = null;
 let waterSwitch, motionSensor;
 let relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
 
-// ADC SPI Configuration
-let spi;
 
 // I2C Configuration for UV Sensor
 const i2c = new I2C();
