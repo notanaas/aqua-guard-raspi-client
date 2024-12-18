@@ -2,7 +2,7 @@
 const { init } = require('raspi');
 const { DigitalInput, DigitalOutput, HIGH, LOW } = require('raspi-gpio');
 const I2C = require('raspi-i2c').I2C;
-const SPI = require('raspi-soft-spi').SoftSPI;
+const SPI = require('raspi-spi');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
@@ -27,12 +27,7 @@ let waterSwitch, motionSensor;
 let relayWaterIn, relayWaterOut, relayChlorinePump, relayFilterHead;
 
 // ADC SPI Configuration
-const spi = new SPI({
-  clockPin: 11, // SCLK
-  mosiPin: 10, // MOSI
-  misoPin: 9,  // MISO
-  chipSelectPin: 8, // CS
-});
+let spi;
 
 // I2C Configuration for UV Sensor
 const i2c = new I2C();
@@ -75,10 +70,9 @@ function readUVSensor() {
 
 function readADC(channel) {
   try {
-    const command = 0xC0 | ((channel & 0x03) << 4); // Command to select channel
-    spi.write([command, 0x00]);
-    const [_, response] = spi.transfer([command, 0x00]);
-    const adcValue = ((response & 0xFF) << 8) | (response & 0xFF);
+    const command = Buffer.from([0xC0 | ((channel & 0x03) << 4), 0x00]); // Command to select channel
+    const response = spi.transfer(command);
+    const adcValue = ((response[0] & 0x03) << 8) | response[1];
     return (adcValue * 3.3) / 1023; // Convert to voltage
   } catch (err) {
     console.error(`Error reading ADC channel ${channel}:`, err.message);
@@ -153,6 +147,9 @@ function cleanup() {
 init(async () => {
   console.log('Initializing GPIO and sensors...');
   try {
+    spi = new SPI.SPI();
+    spi.open();
+
     waterSwitch = new DigitalInput({ pin: 'GPIO17' });
     motionSensor = new DigitalInput({ pin: 'GPIO27' });
     relayWaterIn = new DigitalOutput({ pin: 'GPIO18' });
