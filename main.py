@@ -4,6 +4,10 @@ import time
 import csv
 import requests
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # GPIO Pins
 WATER_SWITCH_PIN = 17
@@ -18,9 +22,9 @@ I2C_BUS = 1
 UV_SENSOR_ADDR = 0x38
 
 # Backend API Configuration
-API_BASE_URL = "http://192.168.1.15:3001/api/devices"
+API_BASE_URL = os.getenv("API_URL", "http://192.168.1.15:3001/api/devices")
+SERIAL_NUMBER = os.getenv("SERIAL_NUMBER", "DEV-1234567890")  # Replace with actual serial number
 LOG_FILE = "sensor_log.csv"
-SETTINGS_FILE = "device_settings.json"
 
 # Setup GPIO
 GPIO.setmode(GPIO.BCM)
@@ -40,33 +44,6 @@ def initialize_csv():
                 writer.writerow(["Timestamp", "pH", "Temperature", "Pressure", "Current", "WaterLevel", "UV", "Motion", "Actions"])
     except Exception as e:
         print(f"Error initializing CSV: {e}")
-
-# Fetch Device Configuration from Backend
-def fetch_device_config():
-    try:
-        if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, 'r') as file:
-                return json.load(file)
-
-        # If settings file does not exist, register the device dynamically
-        serial_number = "DEV-1234567890	"  # Replace with actual serial fetching logic
-        response = requests.post(
-            f"{API_BASE_URL}/register-or-link",
-            json={"serialNumber": serial_number},
-        )
-        response_data = response.json()
-
-        if "error" in response_data:
-            print(f"Error fetching device config: {response_data['error']}")
-            return None
-
-        with open(SETTINGS_FILE, 'w') as file:
-            json.dump(response_data, file)
-
-        return response_data
-    except Exception as e:
-        print(f"Error fetching device config: {e}")
-        return None
 
 # Read UV Sensor
 def read_uv_sensor():
@@ -120,13 +97,14 @@ def log_data(sensor_data, actions):
         print(f"Error logging data: {e}")
 
 # Send Data to Server
-def send_data(sensor_data, auth_token):
+def send_data(sensor_data):
     try:
-        response = requests.post(
-            f"{API_BASE_URL}/sensor-data",
-            json=sensor_data,
-            headers={"Authorization": f"Bearer {auth_token}"},
-        )
+        payload = {
+            "serialNumber": SERIAL_NUMBER,
+            "sensorData": sensor_data,
+        }
+        response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload)
+        response.raise_for_status()  # Raise error for bad status codes
         response_data = response.json()
         actions = response_data.get("actions", [])
         log_data(sensor_data, actions)
@@ -141,18 +119,14 @@ def cleanup():
 if __name__ == "__main__":
     try:
         initialize_csv()
-        device_config = fetch_device_config()
-
-        if not device_config:
-            print("Failed to fetch device configuration. Exiting.")
-            exit(1)
-
-        auth_token = device_config.get("authToken")
 
         while True:
             sensor_data = read_sensors()
             print("Sensor Data:", sensor_data)
-            send_data(sensor_data, auth_token)
+            send_data(sensor_data)
             time.sleep(5)
     except KeyboardInterrupt:
+        cleanup()
+    except Exception as e:
+        print(f"An error occurred: {e}")
         cleanup()
