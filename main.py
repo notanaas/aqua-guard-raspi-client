@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # GPIO Pins
-WATER_SWITCH_PIN = 17
+WATER_SWITCH_PIN = 26
 MOTION_SENSOR_PIN = 27
 RELAY_WATER_IN_PIN = 18
 RELAY_WATER_OUT_PIN = 23
