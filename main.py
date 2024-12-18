@@ -115,23 +115,20 @@ def log_data(sensor_data, actions):
 def send_data(sensor_data):
     try:
         headers = {
-            "serialNumber": SERIAL_NUMBER,
             "Content-Type": "application/json",
+            "serialNumber": SERIAL_NUMBER,
         }
-        payload = {"pH": sensor_data["pH"], "temperature": sensor_data["temperature"], 
-                   "pressure": sensor_data["pressure"], "current": sensor_data["current"], 
-                   "waterLevel": sensor_data["waterLevel"], "uv": sensor_data["uv"], 
-                   "motion": sensor_data["motion"]}
+        payload = sensor_data
         response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload, headers=headers)
-        response.raise_for_status()
+        if response.status_code == 400:
+            print(f"400 Error: {response.text}")  # Log the detailed error
+        response.raise_for_status()  # Raise exception for HTTP errors
         response_data = response.json()
         actions = response_data.get("actions", [])
         execute_actions(actions)
         log_data(sensor_data, actions)
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
-    except ValueError as e:
-        print(f"Invalid JSON response: {e}")
     except Exception as e:
         print(f"Unexpected error: {e}")
 
