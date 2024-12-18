@@ -103,7 +103,7 @@ def send_data(sensor_data):
             "serialNumber": SERIAL_NUMBER,
             "sensorData": sensor_data,
         }
-        response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload)
+        response = requests.post(f"{API_BASE_URL}/api/device/sensor-data", json=payload)
         response.raise_for_status()  # Raise error for bad status codes
         response_data = response.json()
         actions = response_data.get("actions", [])
