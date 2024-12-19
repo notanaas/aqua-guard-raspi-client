@@ -50,6 +50,12 @@ def initialize_csv():
     except Exception as e:
         print(f"Error initializing CSV: {e}")
 
+# Log Rotation
+def rotate_log():
+    if os.path.getsize(LOG_FILE) > 10 * 1024 * 1024:  # 10MB
+        os.rename(LOG_FILE, f"{LOG_FILE}.old")
+        initialize_csv()
+
 # Test GPIO Pins
 def test_gpio():
     print("Testing GPIO Pins...")
@@ -75,7 +81,7 @@ def read_uv_sensor():
         print(f"Error reading UV sensor: {e}")
         return 0
 
-# Read ADC (Mock)
+# Mock Read ADC
 def read_adc(channel):
     try:
         value = channel * 0.5  # Replace with actual ADC read logic
@@ -96,7 +102,7 @@ def read_sensors():
         "uv": read_uv_sensor(),
         "motion": GPIO.input(MOTION_SENSOR_PIN),
     }
-    print("Sensor Readings:", data)  # Debugging output
+    print("Sensor Readings:", data)
     return data
 
 # Execute Actions
@@ -113,6 +119,7 @@ def execute_actions(actions):
 
 # Log Data
 def log_data(sensor_data, actions):
+    rotate_log()
     try:
         with open(LOG_FILE, mode='a', newline='') as file:
             writer = csv.writer(file)
@@ -140,40 +147,38 @@ def send_data(sensor_data):
             "Content-Type": "application/json",
         }
         payload = {
-            "pH": sensor_data["pH"],
-            "temperature": sensor_data["temperature"],
-            "pressure": sensor_data["pressure"],
-            "current": sensor_data["current"],
-            "waterLevel": sensor_data["waterLevel"],
-            "uv": sensor_data["uv"],
-            "motion": sensor_data["motion"],
+            **sensor_data,
+            "actuators": list(RELAY_PINS.keys()),  # Include actuators
         }
-        print("Sending Payload:", payload)  # Debugging payload
+        print("Sending Payload:", payload)
         response = requests.post(f"{API_BASE_URL}/sensor-data", json=payload, headers=headers)
         response.raise_for_status()
         response_data = response.json()
-        actions = response_data.get("actions", [])
-        execute_actions(actions)
-        log_data(sensor_data, actions)
+        execute_actions(response_data.get("actions", []))
+        log_data(sensor_data, response_data.get("actions", []))
     except requests.exceptions.RequestException as e:
         print(f"Request error: {e}")
 
 # WebSocket Handlers
 def on_message(ws, message):
-    data = json.loads(message)
-    if data["type"] == "command":
-        actuator = data["actuator"]
-        command = GPIO.HIGH if data["command"] == "ON" else GPIO.LOW
-        if actuator in RELAY_PINS:
-            GPIO.output(RELAY_PINS[actuator], command)
-            print(f"Executed {actuator}: {'ON' if command == GPIO.HIGH else 'OFF'}")
-            ws.send(json.dumps({
-                "type": "acknowledgment",
-                "serialNumber": SERIAL_NUMBER,
-                "actuator": actuator,
-                "status": "success",
-                "command": data["command"],
-            }))
+    try:
+        data = json.loads(message)
+        print("Received WebSocket message:", data)
+        if data["type"] == "command":
+            actuator = data["actuator"]
+            command = GPIO.HIGH if data["command"] == "ON" else GPIO.LOW
+            if actuator in RELAY_PINS:
+                GPIO.output(RELAY_PINS[actuator], command)
+                print(f"Executed {actuator}: {'ON' if command == GPIO.HIGH else 'OFF'}")
+                ws.send(json.dumps({
+                    "type": "acknowledgment",
+                    "serialNumber": SERIAL_NUMBER,
+                    "actuator": actuator,
+                    "status": "success",
+                    "command": data["command"],
+                }))
+    except Exception as e:
+        print(f"Error processing WebSocket message: {e}")
 
 def on_error(ws, error):
     print("WebSocket Error:", error)
@@ -188,20 +193,25 @@ def on_open(ws):
     }))
 
 def start_websocket():
-    ws = WebSocketApp(
-        WS_URL,
-        on_message=on_message,
-        on_error=on_error,
-        on_close=on_close,
-    )
-    ws.on_open = on_open
-    ws.run_forever()
+    while True:
+        try:
+            ws = WebSocketApp(
+                WS_URL,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            ws.on_open = on_open
+            ws.run_forever()
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+            time.sleep(5)  # Retry delay
 
 # Main Loop
 if __name__ == "__main__":
     try:
         initialize_csv()
-        test_gpio()  # Test GPIO pins
+        test_gpio()
 
         # Start WebSocket in a separate thread
         thread = threading.Thread(target=start_websocket)
