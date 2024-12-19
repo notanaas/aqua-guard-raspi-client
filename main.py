@@ -204,9 +204,9 @@ def start_websocket():
             ws.on_open = on_open
             ws.run_forever()
         except Exception as e:
-            print(f"WebSocket error: {e}")
-            time.sleep(5)  # Retry delay
-
+            retry_delay = random.uniform(5, 10)
+            print(f"WebSocket error: {e}. Retrying in {retry_delay:.2f} seconds...")
+            time.sleep(retry_delay)
 # Main Loop
 if __name__ == "__main__":
     try:
