@@ -6,6 +6,7 @@ import requests
 import os
 import json
 import threading
+import random
 from dotenv import load_dotenv
 from websocket import WebSocketApp
 
@@ -28,7 +29,7 @@ UV_SENSOR_ADDR = 0x38
 
 # Backend API and WebSocket Configuration
 API_BASE_URL = os.getenv("API_URL", "http://192.168.1.15:3001/api/devices")
-WS_URL = "ws://192.168.1.15:3001"
+WS_URL = os.getenv("WS_URL", "ws://192.168.1.15:3001")
 SERIAL_NUMBER = os.getenv("SERIAL_NUMBER", "DEV-1234567890")
 LOG_FILE = "sensor_log.csv"
 
@@ -207,6 +208,7 @@ def start_websocket():
             retry_delay = random.uniform(5, 10)
             print(f"WebSocket error: {e}. Retrying in {retry_delay:.2f} seconds...")
             time.sleep(retry_delay)
+
 # Main Loop
 if __name__ == "__main__":
     try:
