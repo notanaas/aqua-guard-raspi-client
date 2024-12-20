@@ -4,7 +4,7 @@ import time
 import json
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from actuators.relay_control import control_relay
-from sensors.adc import read_adc
+from sensors.adc import adc
 from sensors.uv_sensor import read_uv_sensor
 from blockchain.blockchain_client import BlockchainClient
 from utils import initialize_csv, rotate_log, read_dynamic_settings, save_settings
