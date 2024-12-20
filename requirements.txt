@@ -1,4 +1,4 @@
-Flask
 RPi.GPIO
 smbus2
-requests
+web3
+python-dotenv

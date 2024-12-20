@@ -1,0 +1,11 @@
+[
+    {
+        "constant": true,
+        "inputs": [{"name": "serialNumber", "type": "string"}],
+        "name": "getSensorData",
+        "outputs": [{"name": "", "type": "string"}],
+        "type": "function"
+    },
+    ...
+]
+
