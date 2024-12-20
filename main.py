@@ -128,7 +128,6 @@ def refresh_access_token():
         traceback.print_exc()
         return False
 
-# Device login to obtain initial tokens
 def login_device():
     global ACCESS_TOKEN, REFRESH_TOKEN
     try:
@@ -155,6 +154,7 @@ def login_device():
         print(f"Device login failed: {e}")
         traceback.print_exc()
         exit(1)
+
 
 # Read sensors
 def read_digital_sensor(sensor_type):
