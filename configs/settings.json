@@ -1,5 +1,5 @@
 {
-    "blockchain_url": "127.0.0.1:8545",
+    "blockchain_url": "192.168.1.15:8545",
     "contract_address": "0xb82F2bd326aD783687af2929766e5A55E3d1DDD0",
     "contract_abi": [
         {
