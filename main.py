@@ -20,7 +20,7 @@ BLOCKCHAIN_URL = os.getenv('BLOCKCHAIN_URL')
 CONTRACT_ADDRESS = os.getenv('CONTRACT_ADDRESS')
 CONTRACT_ABI_PATH = os.getenv('CONTRACT_ABI')
 
-# GPIO Setup
+# GPIO Setupa
 GPIO.setmode(GPIO.BCM)
 
 # Relay pins
@@ -166,7 +166,7 @@ def main_loop():
             }
 
             # Log sensor data to the server
-            response = send_api_request("{SERVER_BASE_URL}/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
+            response = send_api_request("/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
             if response:
                 print("Sensor data logged successfully.")
 
