@@ -128,15 +128,15 @@ def main_loop():
             print(f"Sensor data: {sensor_data}")
 
             # Log sensor data to the server
-            response = send_api_request("/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
+            response = send_api_request("/api/devices/sensor-data", method="POST", data={"sensorType": sensor_data})
             if response:
                 print("Sensor data logged successfully.")
 
             # Fetch and update actuator states
             actuator_states = send_api_request(f"/api/devices/{SERIAL_NUMBER}/actuator-states", method="GET")
             if actuator_states:
-                for relay, state in actuator_states.items():
-                    control_relay(relay, "ON" if state else "OFF")
+                for actuator in actuator_states:
+                    control_relay(actuator['type'], "ON" if actuator['state'] else "OFF")
 
             # Sleep before the next iteration
             time.sleep(10)
