@@ -1,6 +1,7 @@
 import os
 import time
 import json
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from actuators.relay_control import control_relay
 from sensors.adc import read_adc
 from sensors.uv_sensor import read_uv_sensor
