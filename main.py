@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import time
+import traceback
 from web3 import Web3
 from dotenv import load_dotenv
 
@@ -21,10 +22,14 @@ try:
         contract_abi = json.load(abi_file)['abi']
 
     web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_URL))
+    if not web3.isConnected():
+        raise ConnectionError("Failed to connect to blockchain.")
+
     contract = web3.eth.contract(address=Web3.toChecksumAddress(CONTRACT_ADDRESS), abi=contract_abi)
     print("Blockchain client initialized successfully.")
 except Exception as e:
     print(f"Error initializing blockchain client: {e}")
+    traceback.print_exc()
     exit(1)
 
 # Helper function for server API interaction
@@ -44,6 +49,7 @@ def send_api_request(endpoint, method="GET", data=None):
         return response.json()
     except requests.RequestException as e:
         print(f"API request failed: {e}")
+        traceback.print_exc()
         return None
 
 # Log sensor data to blockchain and server
@@ -60,6 +66,7 @@ def log_sensor_data(sensor_data):
             print("Sensor data logged to server.")
     except Exception as e:
         print(f"Error logging sensor data: {e}")
+        traceback.print_exc()
 
 # Fetch actuator states
 def fetch_actuator_states():
@@ -70,6 +77,7 @@ def fetch_actuator_states():
             return response
     except Exception as e:
         print(f"Error fetching actuator states: {e}")
+        traceback.print_exc()
     return None
 
 # Update actuator state
@@ -84,6 +92,24 @@ def update_actuator_state(actuator, state):
             print(f"Actuator {actuator} updated successfully.")
     except Exception as e:
         print(f"Error updating actuator state: {e}")
+        traceback.print_exc()
+
+# Simulate reading sensors (replace with actual hardware code)
+def read_sensor_data():
+    try:
+        return {
+            "pH": 7.2,  # Replace with actual pH sensor reading
+            "temperature": 28.5,  # Replace with actual temperature sensor reading
+            "pressure": 1.2,  # Replace with actual pressure sensor reading
+            "current": 0.8,  # Replace with actual current sensor reading
+            "waterLevel": 0.9,  # Replace with actual water level sensor reading
+            "uv": 0.3,  # Replace with actual UV sensor reading
+            "motion": 1  # Replace with actual motion sensor reading
+        }
+    except Exception as e:
+        print(f"Error reading sensor data: {e}")
+        traceback.print_exc()
+        return {}
 
 def main_loop():
     """
@@ -93,25 +119,16 @@ def main_loop():
     print("Starting AquaGuard RPi Client...")
     while True:
         try:
-            # Simulate sensor data (replace with actual sensor readings)
-            sensor_data = {
-                "pH": 7.2,
-                "temperature": 28.5,
-                "pressure": 1.2,
-                "current": 0.8,
-                "waterLevel": 0.9,
-                "uv": 0.3,
-                "motion": 1
-            }
+            # Read sensor data
+            sensor_data = read_sensor_data()
             print(f"Sensor Data: {sensor_data}")
 
             # Log sensor data
             log_sensor_data(sensor_data)
 
-            # Fetch actuator states
+            # Fetch and update actuator states
             actuator_states = fetch_actuator_states()
             if actuator_states:
-                # Example: Update actuators based on some logic
                 for actuator, state in actuator_states.items():
                     print(f"Setting {actuator} to {state}")
                     update_actuator_state(actuator, state)
@@ -124,6 +141,7 @@ def main_loop():
             break
         except Exception as e:
             print(f"Unexpected error: {e}")
+            traceback.print_exc()
             time.sleep(10)
 
 if __name__ == "__main__":
