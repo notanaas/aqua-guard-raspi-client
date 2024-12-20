@@ -1,109 +1,130 @@
-import sys
 import os
-import time
 import json
-import traceback
+import requests
+import time
 from web3 import Web3
+from dotenv import load_dotenv
 
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+# Load environment variables
+load_dotenv()
 
-# Import custom modules
-from actuators.relay_control import control_relay
-from sensors.adc import read_adc
-from sensors.uv_sensor import read_uv_sensor
-from blockchain.blockchain_client import BlockchainClient
-from utils import initialize_csv, rotate_log, read_dynamic_settings, save_settings
+# Environment variables
+BLOCKCHAIN_URL = os.getenv('BLOCKCHAIN_URL')
+CONTRACT_ADDRESS = os.getenv('CONTRACT_ADDRESS')
+CONTRACT_ABI_PATH = os.getenv('CONTRACT_ABI')
+SERIAL_NUMBER = os.getenv('SERIAL_NUMBER')
+SERVER_BASE_URL = os.getenv('SERVER_BASE_URL')
 
-# Path to ABI file
-ABI_FILE_PATH = os.path.join(os.path.dirname(__file__), "AquaGuard.json")
-
-# Load ABI
+# Initialize Web3
 try:
-    with open(ABI_FILE_PATH, "r") as abi_file:
-        contract_data = json.load(abi_file)
-        contract_abi = contract_data["abi"]
-    print("Contract ABI loaded successfully.")
-except Exception as e:
-    print(f"Error loading ABI: {e}")
-    sys.exit(1)
+    with open(CONTRACT_ABI_PATH, 'r') as abi_file:
+        contract_abi = json.load(abi_file)['abi']
 
-# Initialize Settings
-try:
-    settings = read_dynamic_settings()
-    print("Settings loaded successfully.")
-except Exception as e:
-    print(f"Error loading settings: {e}")
-    sys.exit(1)
-
-# Initialize Blockchain Client
-try:
-    blockchain = BlockchainClient(
-        settings['blockchain_url'],
-        settings['contract_address'],
-        contract_abi,  # Pass the loaded ABI
-        settings['serial_number']
-    )
+    web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_URL))
+    contract = web3.eth.contract(address=Web3.toChecksumAddress(CONTRACT_ADDRESS), abi=contract_abi)
     print("Blockchain client initialized successfully.")
 except Exception as e:
     print(f"Error initializing blockchain client: {e}")
-    traceback.print_exc()
-    sys.exit(1)
+    exit(1)
+
+# Helper function for server API interaction
+def send_api_request(endpoint, method="GET", data=None):
+    url = f"{SERVER_BASE_URL}{endpoint}"
+    headers = {"Content-Type": "application/json"}
+    try:
+        if method == "GET":
+            response = requests.get(url, headers=headers)
+        elif method == "POST":
+            response = requests.post(url, json=data, headers=headers)
+        elif method == "PATCH":
+            response = requests.patch(url, json=data, headers=headers)
+        else:
+            raise ValueError("Unsupported HTTP method.")
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"API request failed: {e}")
+        return None
+
+# Log sensor data to blockchain and server
+def log_sensor_data(sensor_data):
+    try:
+        # Log to blockchain
+        tx_hash = contract.functions.logSensorData(SERIAL_NUMBER, json.dumps(sensor_data)).transact({'from': web3.eth.accounts[0]})
+        web3.eth.wait_for_transaction_receipt(tx_hash)
+        print(f"Sensor data logged to blockchain: {tx_hash.hex()}")
+
+        # Log to server
+        response = send_api_request("/api/devices/sensor-data", method="POST", data={"serialNumber": SERIAL_NUMBER, "sensorData": sensor_data})
+        if response:
+            print("Sensor data logged to server.")
+    except Exception as e:
+        print(f"Error logging sensor data: {e}")
+
+# Fetch actuator states
+def fetch_actuator_states():
+    try:
+        response = send_api_request(f"/api/devices/{SERIAL_NUMBER}/actuator-states", method="GET")
+        if response:
+            print(f"Actuator states: {response}")
+            return response
+    except Exception as e:
+        print(f"Error fetching actuator states: {e}")
+    return None
+
+# Update actuator state
+def update_actuator_state(actuator, state):
+    try:
+        response = send_api_request(
+            f"/api/devices/{SERIAL_NUMBER}/control-actuator",
+            method="POST",
+            data={"actuator": actuator, "command": "ON" if state else "OFF"}
+        )
+        if response:
+            print(f"Actuator {actuator} updated successfully.")
+    except Exception as e:
+        print(f"Error updating actuator state: {e}")
 
 def main_loop():
     """
-    Main loop for reading sensor data, logging to the blockchain,
-    and handling periodic tasks.
+    Main loop for reading sensor data, logging to the blockchain and server,
+    and handling actuator states.
     """
-    try:
-        initialize_csv()
-        print("Starting AquaGuard RPi Client...")
-    except Exception as e:
-        print(f"Error during initialization: {e}")
-        return
-
+    print("Starting AquaGuard RPi Client...")
     while True:
         try:
-            # Read Sensors
+            # Simulate sensor data (replace with actual sensor readings)
             sensor_data = {
-                "pH": read_adc(0),
-                "temperature": read_adc(1),
-                "pressure": read_adc(2),
-                "current": read_adc(3),
-                "waterLevel": settings['gpio_pins'].get('water_switch', None),
-                "uv": read_uv_sensor(),
-                "motion": settings['gpio_pins'].get('motion_sensor', None)
+                "pH": 7.2,
+                "temperature": 28.5,
+                "pressure": 1.2,
+                "current": 0.8,
+                "waterLevel": 0.9,
+                "uv": 0.3,
+                "motion": 1
             }
             print(f"Sensor Data: {sensor_data}")
 
-            # Log Data to Blockchain
-            try:
-                blockchain.log_sensor_data(sensor_data)
-                print("Sensor data logged to blockchain.")
-            except Exception as e:
-                print(f"Error logging data to blockchain: {e}")
-                traceback.print_exc()
+            # Log sensor data
+            log_sensor_data(sensor_data)
 
-            # Rotate Log File if Necessary
-            try:
-                rotate_log()
-            except Exception as e:
-                print(f"Error rotating log file: {e}")
+            # Fetch actuator states
+            actuator_states = fetch_actuator_states()
+            if actuator_states:
+                # Example: Update actuators based on some logic
+                for actuator, state in actuator_states.items():
+                    print(f"Setting {actuator} to {state}")
+                    update_actuator_state(actuator, state)
 
             # Sleep before next iteration
-            time.sleep(settings.get('read_interval', 5))
+            time.sleep(10)
 
         except KeyboardInterrupt:
             print("Shutting down AquaGuard RPi Client...")
             break
         except Exception as e:
-            print(f"Unexpected error in main loop: {e}")
-            traceback.print_exc()
+            print(f"Unexpected error: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    try:
-        main_loop()
-    except Exception as e:
-        print(f"Critical error: {e}")
-    finally:
-        # Cleanup resources (e.g., GPIO)
-        print("Cleaning up resources...")
+    main_loop()
