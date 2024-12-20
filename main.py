@@ -57,8 +57,12 @@ def hash_api_key(api_key):
 
 # Helper function for API requests
 def send_api_request(endpoint, method="GET", data=None):
+    """
+    Helper function to interact with the server API.
+    Prepends SERVER_BASE_URL to all endpoint paths.
+    """
     global ACCESS_TOKEN
-    url = f"{SERVER_BASE_URL}{endpoint}"
+    url = f"{SERVER_BASE_URL}{endpoint}"  # Ensure the full URL is constructed here
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {ACCESS_TOKEN}",
@@ -70,20 +74,23 @@ def send_api_request(endpoint, method="GET", data=None):
             response = requests.get(url, headers=headers)
         elif method == "POST":
             response = requests.post(url, json=data, headers=headers)
+        elif method == "PATCH":
+            response = requests.patch(url, json=data, headers=headers)
         else:
             raise ValueError("Unsupported HTTP method.")
 
-        response.raise_for_status()
+        response.raise_for_status()  # Raise error for bad HTTP responses
         return response.json()
     except requests.HTTPError as e:
         if response.status_code == 401:
             print("Token expired. Re-authenticating...")
-            login_device()
-            return send_api_request(endpoint, method, data)
+            login_device()  # Re-login if token is expired
+            return send_api_request(endpoint, method, data)  # Retry after re-authentication
         else:
-            print(f"API request failed: {e}")
+            print(f"API request failed for endpoint '{endpoint}': {e}")
             traceback.print_exc()
             return None
+
 
 # Device login to obtain token
 def login_device():
@@ -112,7 +119,6 @@ def login_device():
         exit(1)
 
 # Read sensors
-
 def read_digital_sensor(sensor_type):
     pin = DIGITAL_SENSOR_PINS.get(sensor_type)
     if pin is None:
@@ -120,9 +126,13 @@ def read_digital_sensor(sensor_type):
     return GPIO.input(pin)
 
 def read_adc(channel):
-    adc = spi.xfer2([1, (8 + channel) << 4, 0])
-    value = ((adc[1] & 3) << 8) + adc[2]
-    return value * (3.3 / 1023)
+    try:
+        adc = spi.xfer2([1, (8 + channel) << 4, 0])
+        value = ((adc[1] & 3) << 8) + adc[2]
+        return round(value * (3.3 / 1023), 2)  # Convert to voltage and round to 2 decimals
+    except Exception as e:
+        print(f"Error reading ADC channel {channel}: {e}")
+        return None
 
 def read_uv_sensor():
     try:
@@ -156,7 +166,7 @@ def main_loop():
             }
 
             # Log sensor data to the server
-            response = send_api_request(f"{SERVER_BASE_URL}/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
+            response = send_api_request("{SERVER_BASE_URL}/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
             if response:
                 print("Sensor data logged successfully.")
 
