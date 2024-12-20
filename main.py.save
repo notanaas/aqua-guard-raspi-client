@@ -3,8 +3,6 @@ import os
 import time
 import json
 import traceback
-from web3 import Web3
-
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 # Import custom modules
@@ -13,19 +11,6 @@ from sensors.adc import read_adc
 from sensors.uv_sensor import read_uv_sensor
 from blockchain.blockchain_client import BlockchainClient
 from utils import initialize_csv, rotate_log, read_dynamic_settings, save_settings
-
-# Path to ABI file
-ABI_FILE_PATH = os.path.join(os.path.dirname(__file__), "AquaGuard.json")
-
-# Load ABI
-try:
-    with open(ABI_FILE_PATH, "r") as abi_file:
-        contract_data = json.load(abi_file)
-        contract_abi = contract_data["abi"]
-    print("Contract ABI loaded successfully.")
-except Exception as e:
-    print(f"Error loading ABI: {e}")
-    sys.exit(1)
 
 # Initialize Settings
 try:
@@ -40,13 +25,12 @@ try:
     blockchain = BlockchainClient(
         settings['blockchain_url'],
         settings['contract_address'],
-        contract_abi,  # Pass the loaded ABI
+        settings['contract_abi'],
         settings['serial_number']
     )
     print("Blockchain client initialized successfully.")
 except Exception as e:
     print(f"Error initializing blockchain client: {e}")
-    traceback.print_exc()
     sys.exit(1)
 
 def main_loop():

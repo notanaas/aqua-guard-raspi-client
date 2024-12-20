@@ -1,25 +1,30 @@
 {
     "blockchain_url": "http://192.168.1.15:8545",
-    "contract_address": "0xb82F2bd326aD783687af2929766e5A55E3d1DDD0",
+    "contract_address": "DEPLOYED_CONTRACT_ADDRESS",
     "contract_abi": [
-        {
-            "anonymous": false,
-            "inputs": [
-                {
-                    "indexed": false,
-                    "internalType": "string",
-                    "name": "serialNumber",
-                    "type": "string"
-                }
-            ],
-            "name": "DeviceRegistered",
-            "type": "event"
-        }
+      {
+        "inputs": [
+          {"internalType": "string", "name": "serialNumber", "type": "string"},
+          {"internalType": "string", "name": "dataType", "type": "string"},
+          {"internalType": "string", "name": "value", "type": "string"}
+        ],
+        "name": "logSensorData",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {"internalType": "string", "name": "serialNumber", "type": "string"},
+          {"internalType": "string", "name": "actuatorType", "type": "string"},
+          {"internalType": "bool", "name": "state", "type": "bool"}
+        ],
+        "name": "updateActuatorState",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
     ],
-    "serial_number": "DEV-1234567890",
-    "read_interval": 5,
-    "gpio_pins": {
-        "water_switch": 17,
-        "motion_sensor": 27
-    }
-}
+    "serial_number": "DEV-1234567890"
+  }
+  
