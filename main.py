@@ -64,7 +64,7 @@ def send_api_request(endpoint, method="GET", data=None):
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"API request failed: {e}")
+        print(f"API request failed for {endpoint}: {e}")
         traceback.print_exc()
         return None
 
@@ -73,7 +73,11 @@ def read_digital_sensor(sensor_type):
     pin = DIGITAL_SENSOR_PINS.get(sensor_type)
     if pin is None:
         raise ValueError(f"Invalid digital sensor type: {sensor_type}")
-    return GPIO.input(pin)
+    try:
+        return GPIO.input(pin)
+    except Exception as e:
+        print(f"Error reading digital sensor {sensor_type}: {e}")
+        return None
 
 def read_adc(channel):
     try:
@@ -84,19 +88,27 @@ def read_adc(channel):
         print(f"Error reading ADC channel {channel}: {e}")
         return None
 
-def read_uv_sensor():
-    try:
-        return i2c_bus.read_word_data(I2C_ADDRESS, 0x00)
-    except Exception as e:
-        print(f"Error reading UV sensor: {e}")
-        return None
+def read_uv_sensor(retries=3):
+    for attempt in range(retries):
+        try:
+            return i2c_bus.read_word_data(I2C_ADDRESS, 0x00)
+        except Exception as e:
+            print(f"Error reading UV sensor on attempt {attempt + 1}/{retries}: {e}")
+            time.sleep(1)  # Retry delay
+    print("Failed to read UV sensor after multiple attempts.")
+    return None
 
 # Control relays
 def control_relay(relay_name, state):
     pin = RELAY_PINS.get(relay_name)
     if pin is None:
-        raise ValueError(f"Invalid relay name: {relay_name}")
-    GPIO.output(pin, GPIO.HIGH if state == "ON" else GPIO.LOW)
+        print(f"Invalid relay name: {relay_name}")
+        return
+    try:
+        GPIO.output(pin, GPIO.HIGH if state == "ON" else GPIO.LOW)
+        print(f"Relay '{relay_name}' set to {state}")
+    except Exception as e:
+        print(f"Error controlling relay {relay_name}: {e}")
 
 # Main loop
 def main_loop():
@@ -113,6 +125,7 @@ def main_loop():
                 "motion": read_digital_sensor("motion"),
                 "uv": read_uv_sensor(),
             }
+            print(f"Sensor data: {sensor_data}")
 
             # Log sensor data to the server
             response = send_api_request("/api/devices/sensor-data", method="POST", data={"sensorData": sensor_data})
