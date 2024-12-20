@@ -89,17 +89,24 @@ def send_api_request(endpoint, method="GET", data=None):
 def login_device():
     global ACCESS_TOKEN
     try:
+        print(f"Attempting login with Serial Number: {SERIAL_NUMBER}, API Key: {DEVICE_API_KEY}")
         response = requests.post(
             f"{SERVER_BASE_URL}/api/auth/login-device",
-            json={"serialNumber": SERIAL_NUMBER, "apiKey": hash_api_key(DEVICE_API_KEY)},
+            json={
+                "serialNumber": SERIAL_NUMBER,
+                "apiKey": DEVICE_API_KEY
+            },
             headers={"Content-Type": "application/json"}
         )
         response.raise_for_status()
-        ACCESS_TOKEN = response.json().get("token")
+        data = response.json()
+        ACCESS_TOKEN = data.get("token")
         if not ACCESS_TOKEN:
             raise ValueError("Token not returned from login.")
         print("Device login successful. Token obtained.")
     except requests.RequestException as e:
+        if e.response:
+            print(f"Server response: {e.response.json()}")
         print(f"Device login failed: {e}")
         traceback.print_exc()
         exit(1)
