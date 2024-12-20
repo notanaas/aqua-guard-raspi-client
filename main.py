@@ -17,20 +17,23 @@ SERIAL_NUMBER = os.getenv('SERIAL_NUMBER')
 SERVER_BASE_URL = os.getenv('SERVER_BASE_URL')
 
 # Initialize Web3
+# Initialize Web3
 try:
     with open(CONTRACT_ABI_PATH, 'r') as abi_file:
         contract_abi = json.load(abi_file)['abi']
 
     web3 = Web3(Web3.HTTPProvider(BLOCKCHAIN_URL))
-    if not web3.isConnected():
-        raise ConnectionError("Failed to connect to blockchain.")
+    
+    # Updated connection validation
+    if not web3.provider:
+        raise ConnectionError(f"Failed to connect to blockchain at {BLOCKCHAIN_URL}.")
 
     contract = web3.eth.contract(address=Web3.toChecksumAddress(CONTRACT_ADDRESS), abi=contract_abi)
     print("Blockchain client initialized successfully.")
 except Exception as e:
     print(f"Error initializing blockchain client: {e}")
-    traceback.print_exc()
     exit(1)
+
 
 # Helper function for server API interaction
 def send_api_request(endpoint, method="GET", data=None):
