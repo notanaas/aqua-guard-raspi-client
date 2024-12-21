@@ -45,7 +45,6 @@ spi.max_speed_hz = 1000000
 I2C_ADDRESS = 0x38
 i2c_bus = smbus.SMBus(1)
 
-# Helper function for API requests
 def send_api_request(endpoint, method="GET", data=None):
     url = f"{SERVER_BASE_URL}{endpoint}"
     headers = {
@@ -111,6 +110,7 @@ def control_relay(relay_name, state):
         print(f"Error controlling relay {relay_name}: {e}")
 
 # Main loop
+# Main loop: send all sensor data in one payload
 def main_loop():
     print("Starting AquaGuard RPi Client...")
     while True:
@@ -127,8 +127,12 @@ def main_loop():
             }
             print(f"Sensor data: {sensor_data}")
 
-            # Log sensor data to the server
-            response = send_api_request("/api/devices/sensor-data", method="POST", data={"sensorType": sensor_data})
+            # Log all sensor data in one POST request
+            response = send_api_request(
+                "/api/devices/sensor-data", 
+                method="POST", 
+                data={"sensorData": sensor_data}
+            )
             if response:
                 print("Sensor data logged successfully.")
 
@@ -148,6 +152,7 @@ def main_loop():
             print(f"Unexpected error: {e}")
             traceback.print_exc()
             time.sleep(10)
+
 
 if __name__ == "__main__":
     try:
