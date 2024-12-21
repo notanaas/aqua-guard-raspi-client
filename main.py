@@ -110,7 +110,6 @@ def control_relay(relay_name, state):
         print(f"Error controlling relay {relay_name}: {e}")
 
 # Main loop
-# Main loop: send all sensor data in one payload
 def main_loop():
     print("Starting AquaGuard RPi Client...")
     while True:
@@ -138,9 +137,14 @@ def main_loop():
 
             # Fetch and update actuator states
             actuator_states = send_api_request(f"/api/devices/{SERIAL_NUMBER}/actuator-states", method="GET")
-            if actuator_states:
+            if actuator_states and isinstance(actuator_states, list):
                 for actuator in actuator_states:
-                    control_relay(actuator['type'], "ON" if actuator['state'] else "OFF")
+                    if isinstance(actuator, dict) and 'type' in actuator and 'state' in actuator:
+                        control_relay(actuator['type'], "ON" if actuator['state'] else "OFF")
+                    else:
+                        print(f"Invalid actuator data: {actuator}")
+            else:
+                print("No valid actuator states received.")
 
             # Sleep before the next iteration
             time.sleep(10)
