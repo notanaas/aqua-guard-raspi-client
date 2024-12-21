@@ -16,6 +16,9 @@ SERVER_BASE_URL = os.getenv("SERVER_BASE_URL")
 SERIAL_NUMBER = os.getenv("SERIAL_NUMBER")
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY")
 
+if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
+    raise ValueError("SERVER_BASE_URL, SERIAL_NUMBER, and DEVICE_API_KEY must be set in the environment variables.")
+
 # GPIO Setup
 GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
@@ -49,7 +52,7 @@ def send_api_request(endpoint, method="GET", data=None):
     url = f"{SERVER_BASE_URL}{endpoint}"
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": DEVICE_API_KEY,
+        "x-api-key": DEVICE_API_KEY,  # Include API key in the header
         "x-serial-number": SERIAL_NUMBER,
     }
     try:
