@@ -49,75 +49,99 @@ I2C_ADDRESS = 0x38
 i2c_bus = smbus.SMBus(1)
 
 def send_api_request(endpoint, method="GET", data=None):
+    """Send HTTP requests to the server."""
     url = f"{SERVER_BASE_URL}{endpoint}"
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": DEVICE_API_KEY,  # Include API key in the header
+        "x-api-key": DEVICE_API_KEY,
         "x-serial-number": SERIAL_NUMBER,
     }
     try:
-        if method == "GET":
+        if method.upper() == "GET":
             response = requests.get(url, headers=headers)
-        elif method == "POST":
+        elif method.upper() == "POST":
             response = requests.post(url, json=data, headers=headers)
         else:
             raise ValueError("Unsupported HTTP method.")
-
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"API request failed for {endpoint}: {e}")
+        print(f"API request to {endpoint} failed: {e}")
         traceback.print_exc()
         return None
 
-# Read sensors
 def read_digital_sensor(sensor_type):
+    """Read data from a digital sensor."""
     pin = DIGITAL_SENSOR_PINS.get(sensor_type)
     if pin is None:
         raise ValueError(f"Invalid digital sensor type: {sensor_type}")
     try:
         return GPIO.input(pin)
     except Exception as e:
-        print(f"Error reading digital sensor {sensor_type}: {e}")
+        print(f"Error reading digital sensor '{sensor_type}': {e}")
         return None
 
 def read_adc(channel):
+    """Read data from ADC channel."""
     try:
         adc = spi.xfer2([1, (8 + channel) << 4, 0])
         value = ((adc[1] & 3) << 8) + adc[2]
-        return round(value * (3.3 / 1023), 2)  # Convert to voltage and round to 2 decimals
+        return round(value * (3.3 / 1023), 2)  # Convert to voltage
     except Exception as e:
         print(f"Error reading ADC channel {channel}: {e}")
         return None
 
 def read_uv_sensor(retries=3):
+    """Read data from the UV sensor."""
     for attempt in range(retries):
         try:
-            return i2c_bus.read_word_data(I2C_ADDRESS, 0x00)
+            uv_data = i2c_bus.read_word_data(I2C_ADDRESS, 0x00)
+            return uv_data
         except Exception as e:
             print(f"Error reading UV sensor on attempt {attempt + 1}/{retries}: {e}")
-            time.sleep(1)  # Retry delay
+            time.sleep(1)
     print("Failed to read UV sensor after multiple attempts.")
     return None
 
-# Control relays
 def control_relay(relay_name, state):
+    """Control relay states."""
     pin = RELAY_PINS.get(relay_name)
     if pin is None:
         print(f"Invalid relay name: {relay_name}")
         return
     try:
-        GPIO.output(pin, GPIO.HIGH if state == "ON" else GPIO.LOW)
+        GPIO.output(pin, GPIO.HIGH if state.upper() == "ON" else GPIO.LOW)
         print(f"Relay '{relay_name}' set to {state}")
     except Exception as e:
-        print(f"Error controlling relay {relay_name}: {e}")
+        print(f"Error controlling relay '{relay_name}': {e}")
 
+def log_sensor_data(sensor_data):
+    """Send sensor data to the server."""
+    response = send_api_request(
+        "/api/devices/sensor-data",
+        method="POST",
+        data={"sensorData": sensor_data}
+    )
+    if response:
+        print("Sensor data logged successfully.")
+    else:
+        print("Failed to log sensor data.")
 
-# Main loop
+def fetch_and_update_actuators():
+    """Fetch actuator states and update relays."""
+    actuator_states = send_api_request(f"/api/devices/{SERIAL_NUMBER}/actuator-states", method="GET")
+    if actuator_states and 'actuators' in actuator_states and isinstance(actuator_states['actuators'], list):
+        for actuator in actuator_states['actuators']:
+            if 'type' in actuator and 'state' in actuator:
+                control_relay(actuator['type'], actuator['state'])
+    else:
+        print("No valid actuator states received.")
+
 def main_loop():
+    """Main loop for reading sensors and controlling relays."""
     print("Starting AquaGuard RPi Client...")
-    while True:
-        try:
+    try:
+        while True:
             # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
@@ -130,44 +154,23 @@ def main_loop():
             }
             print(f"Sensor data: {sensor_data}")
 
-            # Log all sensor data in one POST request
-            response = send_api_request(
-                "/api/devices/sensor-data", 
-                method="POST", 
-                data={"sensorData": sensor_data}
-            )
-            if response:
-                print("Sensor data logged successfully.")
+            # Log sensor data to the server
+            log_sensor_data(sensor_data)
 
-            # Fetch and update actuator states
-           # Fetch and update actuator states
-            actuator_states = send_api_request(f"/api/devices/{SERIAL_NUMBER}/actuator-states", method="GET")
-            print(f"Received actuator states: {actuator_states}")  # Debug log
-            if actuator_states and isinstance(actuator_states, list):
-                for actuator in actuator_states:
-                    if isinstance(actuator, dict) and 'type' in actuator and 'state' in actuator:
-                        control_relay(actuator['type'], "ON" if actuator['state'] else "OFF")
-                    else:
-                        print(f"Invalid actuator data: {actuator}")
-            else:
-                print("No valid actuator states received.")
+            # Fetch and update actuators
+            fetch_and_update_actuators()
 
-
-            # Sleep before the next iteration
+            # Delay between iterations
             time.sleep(10)
 
-        except KeyboardInterrupt:
-            print("Shutting down AquaGuard RPi Client...")
-            break
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            traceback.print_exc()
-            time.sleep(10)
-
-
-if __name__ == "__main__":
-    try:
-        main_loop()
+    except KeyboardInterrupt:
+        print("Shutting down AquaGuard RPi Client...")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        traceback.print_exc()
     finally:
         GPIO.cleanup()
         spi.close()
+
+if __name__ == "__main__":
+    main_loop()
