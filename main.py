@@ -29,6 +29,7 @@ RELAY_PINS = {
     "water_out": 16,
     "chlorine_pump": 18,
     "filter_head": 22,
+    "pool_cover": 25,  # Added pool cover actuator on GPIO 25
 }
 GPIO.setup(list(RELAY_PINS.values()), GPIO.OUT, initial=GPIO.LOW)
 
@@ -110,7 +111,15 @@ def control_relay(relay_name, state):
         print(f"Invalid relay name: {relay_name}")
         return
     try:
-        GPIO.output(pin, GPIO.HIGH if state.upper() == "ON" else GPIO.LOW)
+        if relay_name == "pool_cover":  # Custom logic for pool cover
+            if state.upper() == "OPEN":
+                GPIO.output(pin, GPIO.HIGH)  # Activate relay to open the cover
+            elif state.upper() == "CLOSE":
+                GPIO.output(pin, GPIO.LOW)   # Deactivate relay to close the cover
+            else:
+                print(f"Invalid state for pool_cover: {state}")
+        else:
+            GPIO.output(pin, GPIO.HIGH if state.upper() == "ON" else GPIO.LOW)
         print(f"Relay '{relay_name}' set to {state}")
     except Exception as e:
         print(f"Error controlling relay '{relay_name}': {e}")
