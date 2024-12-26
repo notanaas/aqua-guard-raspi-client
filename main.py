@@ -146,11 +146,45 @@ def fetch_and_update_actuators():
     else:
         print("No valid actuator states received.")
 
+def check_gpio_connection(pin, mode="input"):
+    """
+    Check if a GPIO pin is configured and potentially connected to a device.
+    Args:
+        pin: GPIO pin number (BCM mode).
+        mode: "input" to check input status, "output" to test feedback.
+    Returns:
+        str: Status of the GPIO pin.
+    """
+    try:
+        if mode == "input":
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            state = GPIO.input(pin)
+            return f"GPIO {pin} is configured as INPUT. Current state: {'HIGH' if state else 'LOW'}."
+        elif mode == "output":
+            GPIO.setup(pin, GPIO.OUT)
+            GPIO.output(pin, GPIO.HIGH)
+            state = GPIO.input(pin)  # Check feedback
+            GPIO.output(pin, GPIO.LOW)
+            return f"GPIO {pin} is configured as OUTPUT. Feedback state: {'HIGH' if state else 'LOW'}."
+        else:
+            return f"Invalid mode specified for GPIO {pin}. Use 'input' or 'output'."
+    except Exception as e:
+        return f"Error testing GPIO {pin}: {e}"
+
 def main_loop():
-    """Main loop for reading sensors and controlling relays."""
+    """Main loop for reading sensors, checking GPIO, and controlling relays."""
     print("Starting AquaGuard RPi Client...")
     try:
         while True:
+            # Verify GPIO connections
+            for relay_name, pin in RELAY_PINS.items():
+                status = check_gpio_connection(pin, mode="output")
+                print(f"[Relay Check] {relay_name}: {status}")
+
+            for sensor_name, pin in DIGITAL_SENSOR_PINS.items():
+                status = check_gpio_connection(pin, mode="input")
+                print(f"[Sensor Check] {sensor_name}: {status}")
+
             # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
