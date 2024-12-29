@@ -83,11 +83,14 @@ def read_digital_sensor(sensor_type):
         return None
 
 def read_adc(channel):
-    """Read data from ADC channel."""
+    """Read data from ADC0834 channel."""
+    if channel < 0 or channel > 3:
+        raise ValueError("Channel must be between 0 and 3.")
     try:
         adc = spi.xfer2([1, (8 + channel) << 4, 0])
-        value = ((adc[1] & 3) << 8) + adc[2]
-        return round(value * (3.3 / 1023), 2)  # Convert to voltage
+        raw_value = ((adc[1] & 0x03) << 8) + adc[2]  # Combine the 10-bit result
+        voltage = (raw_value / 1023.0) * 3.3  # Convert to voltage (3.3V reference)
+        return round(voltage, 2)
     except Exception as e:
         print(f"Error reading ADC channel {channel}: {e}")
         return None
@@ -111,15 +114,15 @@ def control_relay(relay_name, state):
         print(f"Invalid relay name: {relay_name}")
         return
     try:
-        if relay_name == "pool_cover":  # Custom logic for pool cover
+        if relay_name == "pool_cover":
             if state.upper() == "OPEN":
-                GPIO.output(pin, GPIO.HIGH)  # Activate relay to open the cover
+                GPIO.output(pin, GPIO.LOW)  # Activate relay to open the cover
             elif state.upper() == "CLOSE":
-                GPIO.output(pin, GPIO.LOW)   # Deactivate relay to close the cover
+                GPIO.output(pin, GPIO.HIGH)  # Deactivate relay to close the cover
             else:
                 print(f"Invalid state for pool_cover: {state}")
         else:
-            GPIO.output(pin, GPIO.HIGH if state.upper() == "ON" else GPIO.LOW)
+            GPIO.output(pin, GPIO.LOW if state.upper() == "ON" else GPIO.HIGH)
         print(f"Relay '{relay_name}' set to {state}")
     except Exception as e:
         print(f"Error controlling relay '{relay_name}': {e}")
@@ -146,46 +149,11 @@ def fetch_and_update_actuators():
     else:
         print("No valid actuator states received.")
 
-def check_gpio_connection(pin, mode="input"):
-    """
-    Check if a GPIO pin is configured and potentially connected to a device.
-    Args:
-        pin: GPIO pin number (BCM mode).
-        mode: "input" to check input status, "output" to test feedback.
-    Returns:
-        str: Status of the GPIO pin.
-    """
-    try:
-        if mode == "input":
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            state = GPIO.input(pin)
-            return f"GPIO {pin} is configured as INPUT. Current state: {'HIGH' if state else 'LOW'}."
-        elif mode == "output":
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.HIGH)
-            state = GPIO.input(pin)  # Check feedback
-            GPIO.output(pin, GPIO.LOW)
-            return f"GPIO {pin} is configured as OUTPUT. Feedback state: {'HIGH' if state else 'LOW'}."
-        else:
-            return f"Invalid mode specified for GPIO {pin}. Use 'input' or 'output'."
-    except Exception as e:
-        return f"Error testing GPIO {pin}: {e}"
-
 def main_loop():
-    """Main loop for reading sensors, checking GPIO, and controlling relays."""
+    """Main loop for reading sensors, logging data, and controlling relays."""
     print("Starting AquaGuard RPi Client...")
     try:
         while True:
-            # Verify GPIO connections
-            for relay_name, pin in RELAY_PINS.items():
-                status = check_gpio_connection(pin, mode="output")
-                print(f"[Relay Check] {relay_name}: {status}")
-
-            for sensor_name, pin in DIGITAL_SENSOR_PINS.items():
-                status = check_gpio_connection(pin, mode="input")
-                print(f"[Sensor Check] {sensor_name}: {status}")
-
-            # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
                 "temperature": read_adc(1),
@@ -197,13 +165,8 @@ def main_loop():
             }
             print(f"Sensor data: {sensor_data}")
 
-            # Log sensor data to the server
             log_sensor_data(sensor_data)
-
-            # Fetch and update actuators
             fetch_and_update_actuators()
-
-            # Delay between iterations
             time.sleep(10)
 
     except KeyboardInterrupt:
