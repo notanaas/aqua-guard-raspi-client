@@ -20,25 +20,17 @@ if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
     raise ValueError("SERVER_BASE_URL, SERIAL_NUMBER, and DEVICE_API_KEY must be set in the environment variables.")
 
 # GPIO Setup
-GPIO.setmode(GPIO.BCM)
-GPIO.setwarnings(False)
-
-# Relay pins
 RELAY_PINS = {
     "water_in": 23,
     "water_out": 16,
     "chlorine_pump": 18,
     "filter_head": 22,
-    "pool_cover": 25,  # Added pool cover actuator on GPIO 25
+    "pool_cover": 25,
 }
-GPIO.setup(list(RELAY_PINS.values()), GPIO.OUT, initial=GPIO.LOW)
-
-# Digital sensor pins
 DIGITAL_SENSOR_PINS = {
     "water_level": 17,
     "motion": 27,
 }
-GPIO.setup(list(DIGITAL_SENSOR_PINS.values()), GPIO.IN)
 
 # ADC0834 Setup
 spi = spidev.SpiDev()
@@ -48,6 +40,41 @@ spi.max_speed_hz = 1000000
 # I2C Setup for UV sensor
 I2C_ADDRESS = 0x38
 i2c_bus = smbus.SMBus(1)
+
+def initialize_gpio():
+    """Initialize GPIO pins."""
+    GPIO.cleanup()  # Reset all GPIO pins
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setwarnings(False)
+
+    # Set up relay pins as outputs
+    for pin in RELAY_PINS.values():
+        GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
+
+    # Set up digital sensor pins as inputs with pull-down resistors
+    for pin in DIGITAL_SENSOR_PINS.values():
+        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+    print("GPIO initialization complete.")
+
+def validate_gpio():
+    """Validate GPIO connections."""
+    print("Validating GPIO connections...")
+
+    for relay_name, pin in RELAY_PINS.items():
+        GPIO.setup(pin, GPIO.OUT)
+        GPIO.output(pin, GPIO.HIGH)
+        print(f"[Relay Test] {relay_name}: Pin {pin} set to HIGH.")
+        time.sleep(0.5)
+        GPIO.output(pin, GPIO.LOW)
+        print(f"[Relay Test] {relay_name}: Pin {pin} set to LOW.")
+
+    for sensor_name, pin in DIGITAL_SENSOR_PINS.items():
+        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        state = GPIO.input(pin)
+        print(f"[Sensor Test] {sensor_name}: Pin {pin} state is {'HIGH' if state else 'LOW'}.")
+
+    print("GPIO validation complete.")
 
 def send_api_request(endpoint, method="GET", data=None):
     """Send HTTP requests to the server."""
@@ -59,16 +86,15 @@ def send_api_request(endpoint, method="GET", data=None):
     }
     try:
         if method.upper() == "GET":
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=10)
         elif method.upper() == "POST":
-            response = requests.post(url, json=data, headers=headers)
+            response = requests.post(url, json=data, headers=headers, timeout=10)
         else:
             raise ValueError("Unsupported HTTP method.")
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"API request to {endpoint} failed: {e}")
-        traceback.print_exc()
+        print(f"API request failed: {e}")
         return None
 
 def read_digital_sensor(sensor_type):
@@ -77,17 +103,23 @@ def read_digital_sensor(sensor_type):
     if pin is None:
         raise ValueError(f"Invalid digital sensor type: {sensor_type}")
     try:
-        return GPIO.input(pin)
+        state = GPIO.input(pin)
+        print(f"Digital sensor '{sensor_type}' state: {'HIGH' if state else 'LOW'}")
+        return state
     except Exception as e:
         print(f"Error reading digital sensor '{sensor_type}': {e}")
         return None
 
 def read_adc(channel):
-    """Read data from ADC channel."""
+    """Read data from ADC0834 channel."""
+    if channel < 0 or channel > 3:
+        raise ValueError("Channel must be between 0 and 3.")
     try:
         adc = spi.xfer2([1, (8 + channel) << 4, 0])
-        value = ((adc[1] & 3) << 8) + adc[2]
-        return round(value * (3.3 / 1023), 2)  # Convert to voltage
+        raw_value = ((adc[1] & 0x03) << 8) + adc[2]  # Combine the 10-bit result
+        voltage = (raw_value / 1023.0) * 3.3  # Convert to voltage (3.3V reference)
+        print(f"ADC Channel {channel} Value: {raw_value}, Voltage: {voltage:.2f}V")
+        return round(voltage, 2)
     except Exception as e:
         print(f"Error reading ADC channel {channel}: {e}")
         return None
@@ -97,6 +129,7 @@ def read_uv_sensor(retries=3):
     for attempt in range(retries):
         try:
             uv_data = i2c_bus.read_word_data(I2C_ADDRESS, 0x00)
+            print(f"UV Sensor Data: {uv_data}")
             return uv_data
         except Exception as e:
             print(f"Error reading UV sensor on attempt {attempt + 1}/{retries}: {e}")
@@ -111,17 +144,16 @@ def control_relay(relay_name, state):
         print(f"Invalid relay name: {relay_name}")
         return
     try:
-        # Handle active-low relays (if applicable)
-        if relay_name == "pool_cover":  # Custom logic for pool cover
+        if relay_name == "pool_cover":
             if state.upper() == "OPEN":
-                GPIO.output(pin, GPIO.LOW)  # Activate relay to open the cover
+                GPIO.output(pin, GPIO.LOW)
+                print(f"Relay '{relay_name}' is OPEN")
             elif state.upper() == "CLOSE":
-                GPIO.output(pin, GPIO.HIGH)  # Deactivate relay to close the cover
-            else:
-                print(f"Invalid state for pool_cover: {state}")
+                GPIO.output(pin, GPIO.HIGH)
+                print(f"Relay '{relay_name}' is CLOSED")
         else:
             GPIO.output(pin, GPIO.LOW if state.upper() == "ON" else GPIO.HIGH)
-        print(f"Relay '{relay_name}' set to {state}")
+            print(f"Relay '{relay_name}' set to {state}")
     except Exception as e:
         print(f"Error controlling relay '{relay_name}': {e}")
 
@@ -147,45 +179,14 @@ def fetch_and_update_actuators():
     else:
         print("No valid actuator states received.")
 
-def check_gpio_connection(pin, mode="input"):
-    """
-    Check if a GPIO pin is configured and potentially connected to a device.
-    Args:
-        pin: GPIO pin number (BCM mode).
-        mode: "input" to check input status, "output" to test feedback.
-    Returns:
-        str: Status of the GPIO pin.
-    """
-    try:
-        if mode == "input":
-            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-            state = GPIO.input(pin)
-            return f"GPIO {pin} is configured as INPUT. Current state: {'HIGH' if state else 'LOW'}."
-        elif mode == "output":
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.HIGH)
-            state = GPIO.input(pin)  # Check feedback
-            GPIO.output(pin, GPIO.LOW)
-            return f"GPIO {pin} is configured as OUTPUT. Feedback state: {'HIGH' if state else 'LOW'}."
-        else:
-            return f"Invalid mode specified for GPIO {pin}. Use 'input' or 'output'."
-    except Exception as e:
-        return f"Error testing GPIO {pin}: {e}"
-
 def main_loop():
-    """Main loop for reading sensors, checking GPIO, and controlling relays."""
+    """Main loop for reading sensors, logging data, and controlling relays."""
     print("Starting AquaGuard RPi Client...")
+    initialize_gpio()
+    validate_gpio()
+
     try:
         while True:
-            # Verify GPIO connections
-            for relay_name, pin in RELAY_PINS.items():
-                status = check_gpio_connection(pin, mode="output")
-                print(f"[Relay Check] {relay_name}: {status}")
-
-            for sensor_name, pin in DIGITAL_SENSOR_PINS.items():
-                status = check_gpio_connection(pin, mode="input")
-                print(f"[Sensor Check] {sensor_name}: {status}")
-
             # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
