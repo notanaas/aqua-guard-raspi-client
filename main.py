@@ -54,18 +54,13 @@ i2c_bus = smbus.SMBus(1)
 
 def initialize_gpio():
     """Initialize GPIO pins."""
-    GPIO.cleanup()  # Reset all GPIO pins
+    GPIO.cleanup()
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
-
-    # Set up relay pins as outputs
     for pin in RELAY_PINS.values():
         GPIO.setup(pin, GPIO.OUT, initial=GPIO.LOW)
-
-    # Set up digital sensor pins as inputs with pull-down resistors
     for pin in DIGITAL_SENSOR_PINS.values():
         GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-
     print("GPIO initialization complete.")
 
 def read_digital_sensor(sensor_type):
@@ -196,55 +191,125 @@ def send_api_request(endpoint, method="GET", data=None):
         print(f"API request failed: {e}")
         return None
 
+
+
+
+def log_to_blockchain(event_type, data):
+    """Log events to the blockchain."""
+    prev_hash = local_blockchain[-1]["hash"] if local_blockchain else "0"
+    block = {
+        "timestamp": time.time(),
+        "event_type": event_type,
+        "data": data,
+        "previous_hash": prev_hash,
+        "hash": hashlib.sha256(f"{data}{prev_hash}".encode()).hexdigest(),
+    }
+    local_blockchain.append(block)
+    print(f"Blockchain Log: {block}")
+
+def fetch_user_and_device_settings():
+    """Fetch user and device settings via API."""
+    headers = {
+        "x-serial-number": SERIAL_NUMBER,
+        "x-api-key": DEVICE_API_KEY,
+    }
+    try:
+        response = requests.get(f"{SERVER_BASE_URL}/api/device/user-and-settings", headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        log_to_blockchain("fetch_user_settings", data)
+        return data.get("device_settings"), data.get("user_settings")
+    except requests.RequestException as e:
+        print(f"Failed to fetch user settings: {e}")
+        log_to_blockchain("error", {"action": "fetch_user_settings", "error": str(e)})
+        return None, None
+
+def sync_blockchain():
+    """Sync the local blockchain with the server."""
+    headers = {
+        "x-serial-number": SERIAL_NUMBER,
+        "x-api-key": DEVICE_API_KEY,
+    }
+    try:
+        response = requests.post(
+            f"{SERVER_BASE_URL}/api/device/blockchain/sync",
+            json={"blockchain": local_blockchain},
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        local_blockchain.clear()
+        print("Blockchain synced successfully.")
+    except requests.RequestException as e:
+        print(f"Failed to sync blockchain: {e}")
+
+def read_i2c_sensor(address):
+    """Read data from I2C sensors."""
+    try:
+        return i2c_bus.read_word_data(address, 0x00)
+    except Exception as e:
+        print(f"Error reading I2C sensor at address {address}: {e}")
+        return None
+
+def notify_server(user_id, message, notification_type="info"):
+    """Send a notification to the server."""
+    headers = {
+        "x-serial-number": SERIAL_NUMBER,
+        "x-api-key": DEVICE_API_KEY,
+    }
+    try:
+        payload = {
+            "user": user_id,
+            "message": message,
+            "type": notification_type,
+        }
+        response = requests.post(
+            f"{SERVER_BASE_URL}/api/notifications/create",
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        print(f"Notification sent: {message}")
+    except requests.RequestException as e:
+        print(f"Failed to send notification: {e}")
+
 def main_loop():
-    """Main loop for reading sensors, logging data, and controlling relays."""
-    print("Starting AquaGuard RPi Client...")
+    """Main loop for reading sensors, making decisions, and controlling relays."""
+    print("Starting AquaGuard System...")
     initialize_gpio()
+    device_settings, user_settings = fetch_user_and_device_settings()
+
+    if not device_settings or not user_settings:
+        print("Exiting due to missing settings.")
+        return
 
     try:
         while True:
-            # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
                 "temperature": read_adc(1),
-                "pressure": read_adc(2),
-                "current": read_adc(3),
-                "uv": read_uv_sensor(),
-                "orp": read_orp_sensor(),
-                "waterLevel": read_digital_sensor("water_level"),
-                "motion": read_digital_sensor("motion"),
-                "algicideLevel": read_digital_sensor("algicide_level"),
-                "chlorineLevel": read_digital_sensor("chlorine_level"),
-                "sodaLevel": read_digital_sensor("soda_level"),
-                "poolTankLevel": read_digital_sensor("pool_tank_level"),
+                "uv": read_i2c_sensor(I2C_ADDRESS_UV),
+                "orp": read_i2c_sensor(I2C_ADDRESS_ORP),
+                "water_level": read_digital_sensor("water_level"),
             }
-            print(f"Sensor data: {sensor_data}")
+            print(f"Sensor Data: {sensor_data}")
 
-            # Log sensor data to the server
-            log_sensor_data(sensor_data)
+            log_to_blockchain("sensor_reading", sensor_data)
 
-            # Manage water in/out levels
-            manage_pool_water_levels(sensor_data)
-
-            # Manage pool tank
-            manage_pool_tank(sensor_data)
-
-            # Control pumps based on chemical levels
-            if not sensor_data["algicideLevel"]:
-                control_relay("algicide_pump", "ON")
-            if not sensor_data["chlorineLevel"]:
-                control_relay("chlorine_pump", "ON")
-            if not sensor_data["sodaLevel"]:
+            if sensor_data["pH"] < user_settings["preferred_pH_range"][0]:
                 control_relay("soda_pump", "ON")
+                notify_server(USER_ID, "pH level low: Adjusting soda pump.", "warning")
+            else:
+                control_relay("soda_pump", "OFF")
 
-            # Delay between iterations
+            if len(local_blockchain) >= 10:
+                sync_blockchain()
+
             time.sleep(10)
 
     except KeyboardInterrupt:
-        print("Shutting down AquaGuard RPi Client...")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        traceback.print_exc()
+        print("System shutting down.")
     finally:
         GPIO.cleanup()
         spi.close()
