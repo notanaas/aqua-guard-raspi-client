@@ -2,7 +2,7 @@ import os
 import json
 import requests
 import time
-import traceback
+import hashlib
 import RPi.GPIO as GPIO
 import spidev  # For ADC0834
 import smbus  # For I2C communication
@@ -19,19 +19,18 @@ DEVICE_API_KEY = os.getenv("DEVICE_API_KEY")
 if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
     raise ValueError("SERVER_BASE_URL, SERIAL_NUMBER, and DEVICE_API_KEY must be set in the environment variables.")
 
-# GPIO Setup
+# GPIO, SPI, and I2C Setup
 RELAY_PINS = {
     "algicide_pump": 5,
     "chlorine_pump": 6,
     "soda_pump": 13,
     "pool_cover": 25,
-    "water_in": 23,  # Relay for filling water into the pool
-    "water_out": 24,  # Relay for draining water out of the pool
-    "pool_tank_fill": 19,  # Relay for filling water from the pool tank
-    "pool_tank_drain": 26,  # Relay for draining water to the pool tank
+    "water_in": 23,
+    "water_out": 24,
+    "pool_tank_fill": 19,
+    "pool_tank_drain": 26,
 }
 
-# Digital sensor pins for level detection
 DIGITAL_SENSOR_PINS = {
     "water_level": 17,
     "motion": 27,
@@ -41,16 +40,15 @@ DIGITAL_SENSOR_PINS = {
     "pool_tank_level": 18,
 }
 
-# ADC0834 Setup
 spi = spidev.SpiDev()
 spi.open(0, 0)
 spi.max_speed_hz = 500000
-spi.mode = 0
 
-# I2C Setup for UV and ORP sensors
 I2C_ADDRESS_UV = 0x38
 I2C_ADDRESS_ORP = 0x39
 i2c_bus = smbus.SMBus(1)
+
+local_blockchain = []  # Blockchain for logging events
 
 def initialize_gpio():
     """Initialize GPIO pins."""
@@ -191,9 +189,6 @@ def send_api_request(endpoint, method="GET", data=None):
         print(f"API request failed: {e}")
         return None
 
-
-
-
 def log_to_blockchain(event_type, data):
     """Log events to the blockchain."""
     prev_hash = local_blockchain[-1]["hash"] if local_blockchain else "0"
@@ -207,28 +202,29 @@ def log_to_blockchain(event_type, data):
     local_blockchain.append(block)
     print(f"Blockchain Log: {block}")
 
+
 def fetch_user_and_device_settings():
     """Fetch user and device settings via API."""
     headers = {
-        "x-serial-number": SERIAL_NUMBER,
         "x-api-key": DEVICE_API_KEY,
+        "x-serial-number": SERIAL_NUMBER,
     }
     try:
         response = requests.get(f"{SERVER_BASE_URL}/api/devices/user-and-settings", headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         log_to_blockchain("fetch_user_settings", data)
-        return data.get("device_settings"), data.get("user_settings")
+        return data.get("deviceSettings"), data.get("userSettings")
     except requests.RequestException as e:
-        print(f"Failed to fetch user settings: {e}")
-        log_to_blockchain("error", {"action": "fetch_user_settings", "error": str(e)})
+        print(f"Error fetching settings: {e}")
         return None, None
+
 
 def sync_blockchain():
     """Sync the local blockchain with the server."""
     headers = {
-        "x-serial-number": SERIAL_NUMBER,
         "x-api-key": DEVICE_API_KEY,
+        "x-serial-number": SERIAL_NUMBER,
     }
     try:
         response = requests.post(
