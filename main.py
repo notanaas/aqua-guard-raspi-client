@@ -11,7 +11,7 @@ from modules.sensors import (
 from modules.relays import control_relay, manage_pool_water_levels, manage_pool_tank, sync_actuators_with_server
 from modules.device_settings import fetch_user_and_device_settings
 from modules.blockchain import log_to_blockchain, sync_blockchain
-from modules.notification import notify_server
+from modules.notifications import notify_server
 from ai_logic.predictor import evaluate_rules, log_to_csv
 
 # Load environment variables
