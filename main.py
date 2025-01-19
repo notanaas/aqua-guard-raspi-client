@@ -209,12 +209,19 @@ def fetch_user_and_device_settings():
         "x-api-key": DEVICE_API_KEY,
         "x-serial-number": SERIAL_NUMBER,
     }
+    print(f"Fetching settings with headers: {headers}")
     try:
         response = requests.get(f"{SERVER_BASE_URL}/api/devices/user-and-settings", headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         log_to_blockchain("fetch_user_settings", data)
         return data.get("deviceSettings"), data.get("userSettings")
+    except requests.HTTPError as e:
+        if response.status_code == 401:
+            print("Unauthorized: Check API key and serial number.")
+        else:
+            print(f"HTTP Error {response.status_code}: {response.text}")
+        return None, None
     except requests.RequestException as e:
         print(f"Error fetching settings: {e}")
         return None, None
