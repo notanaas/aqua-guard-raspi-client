@@ -214,7 +214,7 @@ def fetch_user_and_device_settings():
         "x-api-key": DEVICE_API_KEY,
     }
     try:
-        response = requests.get(f"{SERVER_BASE_URL}/api/device/user-and-settings", headers=headers, timeout=10)
+        response = requests.get(f"{SERVER_BASE_URL}/api/devices/user-and-settings", headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         log_to_blockchain("fetch_user_settings", data)
@@ -232,7 +232,7 @@ def sync_blockchain():
     }
     try:
         response = requests.post(
-            f"{SERVER_BASE_URL}/api/device/blockchain/sync",
+            f"{SERVER_BASE_URL}/api/devices/blockchain/sync",
             json={"blockchain": local_blockchain},
             headers=headers,
             timeout=10,
