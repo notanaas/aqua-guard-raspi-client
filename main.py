@@ -283,12 +283,26 @@ def main_loop():
     initialize_gpio()
     device_settings, user_settings = fetch_user_and_device_settings()
 
-    if not device_settings or not user_settings:
-        print("Exiting due to missing settings.")
-        return
+    # Check for missing or incomplete settings
+    if not device_settings:
+        print("Device settings are missing. Using defaults.")
+        device_settings = {
+            "location": "Unknown",
+            "poolType": "Unknown",
+            "poolSize": "Unknown",
+            "waterCapacity": 0,
+
+        }
+
+    if not user_settings:
+        print("User settings are missing. Using defaults.")
+        user_settings = {
+            "preferred_pH_range": [7.2, 7.6],  # Default safe range for pool pH
+        }
 
     try:
         while True:
+            # Read sensor data
             sensor_data = {
                 "pH": read_adc(0),
                 "temperature": read_adc(1),
@@ -298,14 +312,18 @@ def main_loop():
             }
             print(f"Sensor Data: {sensor_data}")
 
+            # Log sensor data to blockchain
             log_to_blockchain("sensor_reading", sensor_data)
 
-            if sensor_data["pH"] < user_settings["preferred_pH_range"][0]:
+            # Check and control soda pump based on pH
+            pH_min, pH_max = user_settings.get("preferred_pH_range", [7.2, 7.6])
+            if sensor_data["pH"] is not None and sensor_data["pH"] < pH_min:
                 control_relay("soda_pump", "ON")
-                notify_server(USER_ID, "pH level low: Adjusting soda pump.", "warning")
+                notify_server(SERIAL_NUMBER, "pH level low: Adjusting soda pump.", "warning")
             else:
                 control_relay("soda_pump", "OFF")
 
+            # Sync blockchain if it has accumulated blocks
             if len(local_blockchain) >= 10:
                 sync_blockchain()
 
@@ -316,6 +334,7 @@ def main_loop():
     finally:
         GPIO.cleanup()
         spi.close()
+
 
 if __name__ == "__main__":
     main_loop()
