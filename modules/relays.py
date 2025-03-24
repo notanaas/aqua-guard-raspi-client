@@ -42,7 +42,7 @@ def cleanup_gpio():
 
 def fetch_actuator_states():
     """Fetch actuator states from the server."""
-    url = f"{SERVER_BASE_URL}/devices/{SERIAL_NUMBER}/actuator-states"
+    url = f"{SERVER_BASE_URL}/api/devices/{SERIAL_NUMBER}/actuator-states"
     headers = {
         "Content-Type": "application/json",
         "x-api-key": DEVICE_API_KEY,
