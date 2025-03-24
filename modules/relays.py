@@ -17,15 +17,16 @@ if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
 
 # GPIO setup
 RELAY_PINS = {
-    "algicide_pump": 5,         # Algicide chemical pump
-    "chlorine_pump": 6,         # Chlorine chemical pump
-    "soda_pump": 13,            # Soda chemical pump (pH up/down)
-    "pool_cover": 25,           # Pool cover actuator
-    "water_in": 23,             # Water inflow valve
-    "water_out": 24,            # Water outflow valve
-    "pool_tank_fill": 19,       # Fill main pool tank
-    "pool_tank_drain": 26,      # Drain pool tank
-    "filter_head": 21           # ✅ Newly added: Sand filter head (auto-backwash)
+    "algicide_pump": 5,
+    "chlorine_pump": 6,
+    "soda_pump": 13,
+    "pool_cover": 25,
+    "water_in": 23,
+    "water_out": 24,
+    "pool_tank_fill": 19,
+    "pool_tank_drain": 26,
+    "filter_head": 21,     # ✅ Add this
+    "pool_heater": 20      # ✅ Add this too, used in AI logic
 }
 
 
