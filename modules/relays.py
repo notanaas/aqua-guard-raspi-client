@@ -92,7 +92,7 @@ def update_actuator_state(relay_name, state):
         relay_name (str): The name of the relay/actuator.
         state (str): The state ("ON" or "OFF").
     """
-    url = f"{SERVER_BASE_URL}/api/devices/{SERIAL_NUMBER}/control-actuator"
+    url = f"{SERVER_BASE_URL}/api/devices/control-actuator"
     headers = {
         "Content-Type": "application/json",
         "x-api-key": DEVICE_API_KEY,
