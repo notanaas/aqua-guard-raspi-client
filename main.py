@@ -19,6 +19,9 @@ from modules.device_settings import fetch_user_and_device_settings
 from modules.blockchain import log_to_blockchain, sync_blockchain
 from modules.notifications import notify_server
 from ai_logic.predictor import evaluate_rules, log_to_csv
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent))
 
 # Load environment variables
 load_dotenv()
