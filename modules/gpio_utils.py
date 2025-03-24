@@ -1,19 +1,15 @@
 import RPi.GPIO as GPIO
 
 # Define relay and digital sensor pin mappings
-RELAY_PINS = {
-    "algicide_pump": 5,
-    "chlorine_pump": 6,
-    "soda_pump": 13,
-    "pool_cover": 25,
-    "water_in": 23,
-    "water_out": 24,
-    # Future pins (uncomment when wired in hardware):
-    # "pool_tank_fill": 19,
-    # "pool_tank_drain": 26,
-    # "filter_head": 21,
-    # "pool_heater": 20
+relay_pins = {
+    'algicide_pump': 5,
+    'chlorine_pump': 6,
+    'soda_pump': 13,
+    'pool_cover': 25,
+    'water_in': 23,
+    'water_out': 24
 }
+
 
 DIGITAL_SENSOR_PINS = {
     "water_level": 17,
@@ -34,8 +30,9 @@ def initialize_gpio():
         GPIO.setwarnings(False)
 
         # Relay output pins setup (OFF by default)
-        for name, pin in RELAY_PINS.items():
-            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+        for name, pin in relay_pins.items():
+            GPIO.setup(pin, GPIO.OUT)
+            GPIO.output(pin, GPIO.LOW)
             print(f"[⚙️ RELAY INIT] {name} (pin {pin}) set to OFF")
 
         # Digital input sensor pins setup
