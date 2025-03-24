@@ -10,6 +10,8 @@ RELAY_PINS = {
     "water_out": 24,
     "pool_tank_fill": 19,
     "pool_tank_drain": 26,
+    "filter_head": 21,     # ✅ Add this
+    "pool_heater": 20      # ✅ Add this too, used in AI logic
 }
 
 DIGITAL_SENSOR_PINS = {
