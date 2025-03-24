@@ -23,10 +23,10 @@ RELAY_PINS = {
     "pool_cover": 25,
     "water_in": 23,
     "water_out": 24,
-    "pool_tank_fill": 19,
-    "pool_tank_drain": 26,
-    "filter_head": 21,     # ✅ Add this
-    "pool_heater": 20      # ✅ Add this too, used in AI logic
+    #"pool_tank_fill": 19,
+    #"pool_tank_drain": 26,
+  #  "filter_head": 21,     # ✅ Add this
+   # "pool_heater": 20      # ✅ Add this too, used in AI logic
 }
 
 
