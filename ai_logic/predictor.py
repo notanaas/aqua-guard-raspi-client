@@ -42,25 +42,31 @@ def log_to_csv(sensor_data, actions):
         print(f"Error logging to CSV: {e}")
 
 def evaluate_rules(sensor_data, user_settings):
-    """Evaluate rules based on sensor data and user settings."""
     actions = []
 
-    # pH Level Control
-    if sensor_data["pH"] < user_settings["preferred_pH_range"][0]:
+    # Safely extract settings with defaults
+    pH_range = user_settings.get("preferred_pH_range", [7.2, 7.8])
+    pool_info = user_settings.get("poolInfo", {})
+    min_water = pool_info.get("minWaterLevel", 30)
+    max_water = pool_info.get("maxWaterLevel", 70)
+    desired_temp = pool_info.get("desiredTemperature", 28)
+
+    # pH control logic
+    if sensor_data["pH"] < pH_range[0]:
         actions.append({"actuator": "chlorine_pump", "command": "ON", "message": "pH low, activating chlorine pump."})
-    elif sensor_data["pH"] > user_settings["preferred_pH_range"][1]:
+    elif sensor_data["pH"] > pH_range[1]:
         actions.append({"actuator": "chlorine_pump", "command": "OFF", "message": "pH high, deactivating chlorine pump."})
 
-    # Water Level Control
-    if sensor_data["waterLevel"] < user_settings["poolInfo"]["minWaterLevel"]:
+    # Water level control
+    if sensor_data["waterLevel"] < min_water:
         actions.append({"actuator": "water_in", "command": "ON", "message": "Water level low, filling pool."})
-    elif sensor_data["waterLevel"] > user_settings["poolInfo"]["maxWaterLevel"]:
+    elif sensor_data["waterLevel"] > max_water:
         actions.append({"actuator": "water_out", "command": "ON", "message": "Water level high, draining pool."})
 
-    # Temperature Control
-    if sensor_data["temperature"] < user_settings["poolInfo"]["desiredTemperature"]:
+    # Temperature control
+    if sensor_data["temperature"] < desired_temp:
         actions.append({"actuator": "pool_heater", "command": "ON", "message": "Temperature low, activating heater."})
-    elif sensor_data["temperature"] > user_settings["poolInfo"]["desiredTemperature"] + 2:
+    elif sensor_data["temperature"] > desired_temp + 2:
         actions.append({"actuator": "pool_heater", "command": "OFF", "message": "Temperature high, deactivating heater."})
 
     return actions
