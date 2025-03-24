@@ -5,6 +5,8 @@ import csv
 import time
 import requests
 import os
+from datetime import datetime
+from datetime import datetime
 
 # Environment variables for API
 SERVER_BASE_URL = os.getenv("SERVER_BASE_URL")
@@ -37,6 +39,19 @@ SENSOR_THRESHOLDS = {
     "pH": {"min": 7.2, "max": 7.8},
     "chlorine": {"min": 1, "max": 3},
 }
+
+def log_sensor_data_locally(sensor_data, filename="sensor_log.csv"):
+    """
+    Append sensor data to a local CSV file for backup/logging.
+    """
+    file_exists = os.path.isfile(filename)
+
+    with open(filename, mode="a", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=["timestamp"] + list(sensor_data.keys()))
+        if not file_exists:
+            writer.writeheader()
+        sensor_data["timestamp"] = datetime.now().isoformat()
+        writer.writerow(sensor_data)
 
 def initialize_sensors():
     """Initialize sensors."""

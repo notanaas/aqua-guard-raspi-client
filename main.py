@@ -7,8 +7,14 @@ from modules.sensors import (
     read_i2c_sensor,
     read_digital_sensor,
     log_sensor_data,
+    log_sensor_data_locally,  # ✅ Add this import
 )
-from modules.relays import control_relay, manage_pool_water_levels, manage_pool_tank, sync_actuators_with_server
+from modules.relays import (
+    control_relay,
+    manage_pool_water_levels,
+    manage_pool_tank,
+    sync_actuators_with_server,
+)
 from modules.device_settings import fetch_user_and_device_settings
 from modules.blockchain import log_to_blockchain, sync_blockchain
 from modules.notifications import notify_server
@@ -47,18 +53,31 @@ def main_loop():
     try:
         while True:
             # Step 1: Read sensors
-            sensor_data = {
-                "pH": read_adc(0),
-                "temperature": read_adc(1),
-                "uv": read_i2c_sensor(I2C_ADDRESS_UV),
-                "orp": read_i2c_sensor(I2C_ADDRESS_ORP),
-                "waterLevel": read_digital_sensor("water_level"),
-                "poolTankLevel": read_digital_sensor("pool_tank_level"),
-            }
+            try:
+                sensor_data = {
+                    "pH": read_adc(0),
+                    "temperature": read_adc(1),
+                    "uv": read_i2c_sensor(I2C_ADDRESS_UV),
+                    "orp": read_i2c_sensor(I2C_ADDRESS_ORP),
+                    "waterLevel": read_digital_sensor("water_level"),
+                    "poolTankLevel": read_digital_sensor("pool_tank_level"),
+                }
+            except Exception as e:
+                print(f"Error reading sensors: {e}")
+                sensor_data = {
+                    "pH": None,
+                    "temperature": None,
+                    "uv": None,
+                    "orp": None,
+                    "waterLevel": None,
+                    "poolTankLevel": None,
+                }
+
             print(f"Sensor Data: {sensor_data}")
 
             # Step 2: Log sensor data
             log_sensor_data(sensor_data)
+            log_sensor_data_locally(sensor_data)  # ✅ Local CSV backup
             log_to_blockchain("sensor_reading", sensor_data)
 
             # Step 3: Sync actuators with server
