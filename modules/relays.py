@@ -13,9 +13,9 @@ SERIAL_NUMBER = os.getenv("SERIAL_NUMBER")
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY")
 
 if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
-    raise ValueError("SERVER_BASE_URL, SERIAL_NUMBER, and DEVICE_API_KEY must be set in the environment variables.")
+    raise ValueError("[❌ CONFIG ERROR] SERVER_BASE_URL, SERIAL_NUMBER, and DEVICE_API_KEY must be set.")
 
-# GPIO setup
+# GPIO pin configuration
 RELAY_PINS = {
     "algicide_pump": 5,
     "chlorine_pump": 6,
@@ -23,25 +23,28 @@ RELAY_PINS = {
     "pool_cover": 25,
     "water_in": 23,
     "water_out": 24,
-    #"pool_tank_fill": 19,
-    #"pool_tank_drain": 26,
-  #  "filter_head": 21,     # ✅ Add this
-   # "pool_heater": 20      # ✅ Add this too, used in AI logic
+    # Future pins below (uncomment when added physically):
+    # "pool_tank_fill": 19,
+    # "pool_tank_drain": 26,
+    # "filter_head": 21,
+    # "pool_heater": 20
 }
 
 
 def initialize_gpio():
-    """Initialize GPIO pins."""
+    """Initialize GPIO relay pins."""
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
-    for pin in RELAY_PINS.values():
-        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)  # Set initial state to OFF
-    print("GPIO initialized.")
+    for relay_name, pin in RELAY_PINS.items():
+        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+    print("[✅ GPIO] All relay pins initialized.")
+
 
 def cleanup_gpio():
-    """Clean up GPIO resources."""
+    """Clean up GPIO resources on exit."""
     GPIO.cleanup()
-    print("GPIO cleaned up.")
+    print("[🧹 GPIO] GPIO cleanup complete.")
+
 
 def fetch_actuator_states():
     """Fetch actuator states from the server."""
@@ -55,46 +58,37 @@ def fetch_actuator_states():
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
         actuators = response.json().get("actuators", [])
-        print(f"Fetched actuator states: {actuators}")
+        print(f"[🌐 SYNC] Fetched actuator states: {actuators}")
         return actuators
     except requests.RequestException as e:
-        print(f"Failed to fetch actuator states: {e}")
+        print(f"[❌ ERROR] Failed to fetch actuator states: {e}")
         return []
 
-def control_relay(relay_name, state):
-    """
-    Control relay state and log changes to blockchain and server.
 
-    Parameters:
-        relay_name (str): The name of the relay/actuator to control.
-        state (str): The desired state ("ON" or "OFF").
-    """
+def control_relay(relay_name, state):
+    """Control a relay and propagate its state to blockchain and server."""
     pin = RELAY_PINS.get(relay_name)
     if pin is None:
-        print(f"Invalid relay name: {relay_name}")
+        print(f"[⚠️ WARNING] Unknown relay '{relay_name}', skipping control.")
         return
 
-    # Update relay locally
     try:
         GPIO.output(pin, GPIO.LOW if state.upper() == "ON" else GPIO.HIGH)
-        print(f"Relay '{relay_name}' set to {state}")
+        print(f"[⚙️ ACTUATOR] {relay_name.upper()} => {state.upper()}")
 
-        # Log the action to blockchain
-        log_to_blockchain("actuator_action", {"relay_name": relay_name, "state": state})
+        log_to_blockchain("actuator_action", {
+            "relay_name": relay_name,
+            "state": state.upper()
+        })
 
-        # Update actuator state via API
         update_actuator_state(relay_name, state)
+
     except Exception as e:
-        print(f"Error controlling relay '{relay_name}': {e}")
+        print(f"[❌ GPIO ERROR] Failed to control '{relay_name}': {e}")
+
 
 def update_actuator_state(relay_name, state):
-    """
-    Update the actuator state on the server.
-
-    Parameters:
-        relay_name (str): The name of the relay/actuator.
-        state (str): The state ("ON" or "OFF").
-    """
+    """Update the actuator state on the server."""
     url = f"{SERVER_BASE_URL}/api/devices/control-actuator"
     headers = {
         "Content-Type": "application/json",
@@ -108,45 +102,60 @@ def update_actuator_state(relay_name, state):
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         response.raise_for_status()
-        print(f"Actuator state for '{relay_name}' updated successfully on the server.")
+        print(f"[✅ SERVER] {relay_name} state updated to {state.upper()} on server.")
     except requests.RequestException as e:
-        print(f"Failed to update actuator state for '{relay_name}': {e}")
+        print(f"[❌ SERVER ERROR] Failed to update '{relay_name}' state: {e}")
 
 
 def sync_actuators_with_server():
-    """Sync local relay states with the server."""
+    """Sync all actuators from the server to local GPIO state."""
     actuators = fetch_actuator_states()
     for actuator in actuators:
-        relay_name = actuator["type"]
-        state = "ON" if actuator["state"] == "ON" else "OFF"
-        control_relay(relay_name, state)
+        control_relay(
+            relay_name=actuator.get("type"),
+            state="ON" if actuator.get("state") == "ON" else "OFF"
+        )
+
 
 def manage_pool_water_levels(sensor_data):
-    """Control water in and out relays based on pool water level."""
-    if sensor_data["waterLevel"] < 50:  # Example threshold for low water level
-        print("Water level is low, filling water into the pool...")
+    """Manage pool water level based on sensor values."""
+    water_level = sensor_data.get("waterLevel", 0)
+    pool_tank_level = sensor_data.get("poolTankLevel", 0)
+
+    print(f"\n[📊 WATER LEVEL MONITOR]")
+    print(f"  - Pool water level: {water_level}")
+    print(f"  - Pool tank level: {pool_tank_level}")
+
+    if water_level < 50:
+        print("[💧 ACTION] Low pool water level detected — starting water_in.")
         control_relay("water_in", "ON")
         control_relay("water_out", "OFF")
-    elif sensor_data["poolTankLevel"] > 80:  # Example threshold for high tank level
-        print("Draining water from the pool...")
+    elif pool_tank_level > 80:
+        print("[🛠 ACTION] High tank level detected — draining pool via water_out.")
         control_relay("water_out", "ON")
         control_relay("water_in", "OFF")
     else:
-        print("Water level is stable.")
+        print("[👌 STATUS] Pool water level is stable.")
         control_relay("water_in", "OFF")
         control_relay("water_out", "OFF")
 
+
 def manage_pool_tank(sensor_data):
-    """Control pool tank filling or draining."""
-    if sensor_data["poolTankLevel"] < 20:  # Example threshold for low tank level
-        print("Pool tank level is low, filling the tank...")
+    """Manage pool tank fill/drain operations."""
+    tank_level = sensor_data.get("poolTankLevel", 0)
+
+    print(f"\n[📊 POOL TANK MONITOR]")
+    print(f"  - Tank level: {tank_level}")
+
+    if tank_level < 20:
+        print("[🚰 ACTION] Tank low — filling pool_tank_fill ON.")
         control_relay("pool_tank_fill", "ON")
         control_relay("pool_tank_drain", "OFF")
-    elif sensor_data["poolTankLevel"] > 80:  # Example threshold for high tank level
-        print("Draining excess water from the tank...")
+    elif tank_level > 80:
+        print("[⚠️ ACTION] Tank high — draining pool_tank_drain ON.")
         control_relay("pool_tank_drain", "ON")
         control_relay("pool_tank_fill", "OFF")
     else:
-        print("Pool tank level is stable.")
+        print("[👌 STATUS] Tank level is within acceptable range.")
         control_relay("pool_tank_fill", "OFF")
         control_relay("pool_tank_drain", "OFF")

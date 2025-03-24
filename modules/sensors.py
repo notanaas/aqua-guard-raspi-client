@@ -1,12 +1,12 @@
-import spidev
-import smbus
-import RPi.GPIO as GPIO
+import os
 import csv
 import time
 import requests
-import os
 from datetime import datetime
 from dotenv import load_dotenv
+import spidev
+import smbus
+import RPi.GPIO as GPIO
 
 # Load environment variables
 load_dotenv()
@@ -14,14 +14,17 @@ SERVER_BASE_URL = os.getenv("SERVER_BASE_URL")
 SERIAL_NUMBER = os.getenv("SERIAL_NUMBER")
 DEVICE_API_KEY = os.getenv("DEVICE_API_KEY")
 
-# SPI and I2C setup
+# Validate environment
+if not SERVER_BASE_URL or not SERIAL_NUMBER or not DEVICE_API_KEY:
+    raise EnvironmentError("[❌ CONFIG] Missing environment variables. Check .env setup.")
+
+# Setup SPI and I2C
 spi = spidev.SpiDev()
 spi.open(0, 0)
 spi.max_speed_hz = 500000
-
 i2c_bus = smbus.SMBus(1)
 
-# Sensor pin mapping
+# Pin mapping
 DIGITAL_SENSOR_PINS = {
     "water_level": 17,
     "motion": 27,
@@ -31,86 +34,106 @@ DIGITAL_SENSOR_PINS = {
     "pool_tank_level": 18,
 }
 
-# I2C Addresses
+# I2C sensor addresses
 I2C_ADDRESS_UV = 0x38
 I2C_ADDRESS_ORP = 0x39
 
-# Thresholds for validation
+# Safe range validation thresholds
 SENSOR_THRESHOLDS = {
     "pH": {"min": 7.2, "max": 7.8},
     "chlorine": {"min": 1, "max": 3},
 }
 
+
 def initialize_sensors():
-    """Initialize GPIO digital sensors."""
-    print("Initializing sensors...")
+    """Initialize all digital GPIO sensors."""
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
-    for pin in DIGITAL_SENSOR_PINS.values():
+    for name, pin in DIGITAL_SENSOR_PINS.items():
         GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        print(f"[✅ SENSOR INIT] {name} pin {pin} configured.")
     time.sleep(2)
-    print("Sensors initialized.")
+    print("[✅ SENSOR INIT] All sensors initialized.\n")
+
 
 def read_adc(channel):
-    """Read analog value from ADC0834 channel (0–3)."""
-    if channel < 0 or channel > 3:
-        raise ValueError("Channel must be between 0 and 3.")
+    """Read analog value from ADC0834 on the specified channel."""
+    if channel not in range(4):
+        raise ValueError("ADC channel must be between 0 and 3.")
     try:
         adc = spi.xfer2([1, (8 + channel) << 4, 0])
-        raw_value = ((adc[1] & 0x03) << 8) + adc[2]
-        voltage = (raw_value / 1023.0) * 3.3
-        return round(voltage, 2)
+        raw = ((adc[1] & 0x03) << 8) + adc[2]
+        voltage = round((raw / 1023.0) * 3.3, 2)
+        print(f"[🔍 ADC] Channel {channel} => {voltage} V")
+        return voltage
     except Exception as e:
-        print(f"Error reading ADC channel {channel}: {e}")
+        print(f"[❌ ADC ERROR] Channel {channel}: {e}")
         return None
+
 
 def read_i2c_sensor(address):
-    """Read data from I2C sensors at given address."""
+    """Read a value from an I2C sensor."""
     try:
-        return i2c_bus.read_word_data(address, 0x00)
+        data = i2c_bus.read_word_data(address, 0x00)
+        print(f"[🔍 I2C] Address {hex(address)} => {data}")
+        return data
     except Exception as e:
-        print(f"Error reading I2C sensor at {hex(address)}: {e}")
+        print(f"[❌ I2C ERROR] Failed to read from {hex(address)}: {e}")
         return None
+
 
 def read_digital_sensor(sensor_type):
-    """Read state from digital GPIO sensor."""
+    """Read the state of a digital GPIO sensor."""
     pin = DIGITAL_SENSOR_PINS.get(sensor_type)
     if pin is None:
-        raise ValueError(f"Invalid digital sensor type: {sensor_type}")
+        print(f"[⚠️ WARNING] Unknown sensor: {sensor_type}")
+        return None
     try:
-        return GPIO.input(pin)
+        state = GPIO.input(pin)
+        print(f"[🔍 DIGITAL] {sensor_type} (pin {pin}) => {'HIGH' if state else 'LOW'}")
+        return state
     except Exception as e:
-        print(f"Error reading digital sensor '{sensor_type}': {e}")
+        print(f"[❌ DIGITAL ERROR] {sensor_type}: {e}")
         return None
 
+
 def validate_sensor_reading(sensor_type, value):
-    """Check if a reading is within valid thresholds."""
+    """Validate if a sensor reading falls within its configured thresholds."""
     thresholds = SENSOR_THRESHOLDS.get(sensor_type)
     if thresholds:
-        if "min" in thresholds and value < thresholds["min"]:
-            print(f"{sensor_type} reading too low: {value}")
+        if value is None:
+            print(f"[❌ VALIDATION] No value for {sensor_type}.")
             return False
-        if "max" in thresholds and value > thresholds["max"]:
-            print(f"{sensor_type} reading too high: {value}")
+        if value < thresholds["min"]:
+            print(f"[⚠️ VALIDATION] {sensor_type} too low: {value} < {thresholds['min']}")
+            return False
+        if value > thresholds["max"]:
+            print(f"[⚠️ VALIDATION] {sensor_type} too high: {value} > {thresholds['max']}")
             return False
     return True
 
+
 def log_sensor_data_locally(sensor_data, filename="sensor_log.csv"):
-    """Append sensor data to a local CSV file."""
+    """Append sensor data with timestamp to a local CSV log."""
     file_exists = os.path.isfile(filename)
-    with open(filename, mode="a", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["timestamp"] + list(sensor_data.keys()))
-        if not file_exists:
-            writer.writeheader()
-        sensor_data["timestamp"] = datetime.now().isoformat()
-        writer.writerow(sensor_data)
+    sensor_data["timestamp"] = datetime.now().isoformat()
+    try:
+        with open(filename, mode="a", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=["timestamp"] + list(sensor_data.keys()))
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(sensor_data)
+        print(f"[💾 CSV] Sensor data logged locally in '{filename}'")
+    except Exception as e:
+        print(f"[❌ CSV ERROR] Failed to write log: {e}")
+
 
 def log_sensor_data(sensor_data):
-    """Send sensor data to the server and store locally."""
-    # Local log
+    """Log sensor data both locally and remotely."""
+    # Local CSV log
     log_sensor_data_locally(sensor_data)
 
-    # Remote log
+    # Remote server log
     try:
         response = requests.post(
             f"{SERVER_BASE_URL}/api/devices/sensor-data",
@@ -122,13 +145,15 @@ def log_sensor_data(sensor_data):
             },
         )
         response.raise_for_status()
-        print("Sensor data logged successfully to the server.")
+        print("[✅ SERVER] Sensor data sent to server.\n")
     except requests.RequestException as e:
-        print(f"Failed to log sensor data to the server: {e}")
+        print(f"[❌ SERVER ERROR] Sensor data upload failed: {e}\n")
+
 
 def fetch_sensor_readings():
-    """Collect readings from all connected sensors."""
-    return {
+    """Fetch and return current values of all connected sensors."""
+    print("\n[📡 SENSOR READINGS]")
+    data = {
         "pH": read_adc(0),
         "temperature": read_adc(1),
         "uv": read_i2c_sensor(I2C_ADDRESS_UV),
@@ -136,3 +161,5 @@ def fetch_sensor_readings():
         "waterLevel": read_digital_sensor("water_level"),
         "poolTankLevel": read_digital_sensor("pool_tank_level"),
     }
+    print("[📦 DONE] All sensor readings collected.\n")
+    return data
