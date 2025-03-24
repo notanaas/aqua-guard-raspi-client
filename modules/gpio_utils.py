@@ -8,10 +8,11 @@ RELAY_PINS = {
     "pool_cover": 25,
     "water_in": 23,
     "water_out": 24,
-    "pool_tank_fill": 19,
-    "pool_tank_drain": 26,
-    "filter_head": 21,     # ✅ Add this
-    "pool_heater": 20      # ✅ Add this too, used in AI logic
+    # Future pins (uncomment when wired in hardware):
+    # "pool_tank_fill": 19,
+    # "pool_tank_drain": 26,
+    # "filter_head": 21,
+    # "pool_heater": 20
 }
 
 DIGITAL_SENSOR_PINS = {
@@ -23,31 +24,36 @@ DIGITAL_SENSOR_PINS = {
     "pool_tank_level": 18,
 }
 
+
 def initialize_gpio():
     """
-    Initialize GPIO pins.
-    
-    Sets up relay and digital sensor pins with default states.
+    Initialize all GPIO pins for relays and sensors.
     """
-    GPIO.cleanup()
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setwarnings(False)
-    
-    # Initialize relay pins
-    for pin in RELAY_PINS.values():
-        GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)  # Relays OFF by default
-    
-    # Initialize digital sensor pins
-    for pin in DIGITAL_SENSOR_PINS.values():
-        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-    
-    print("GPIO initialization complete.")
+    try:
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+
+        # Relay output pins setup (OFF by default)
+        for name, pin in RELAY_PINS.items():
+            GPIO.setup(pin, GPIO.OUT, initial=GPIO.HIGH)
+            print(f"[⚙️ RELAY INIT] {name} (pin {pin}) set to OFF")
+
+        # Digital input sensor pins setup
+        for name, pin in DIGITAL_SENSOR_PINS.items():
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+            print(f"[📥 SENSOR INIT] {name} (pin {pin}) set as INPUT")
+
+        print("[✅ GPIO INIT] All GPIO pins initialized.")
+    except Exception as e:
+        print(f"[❌ GPIO INIT ERROR] {e}")
+
 
 def cleanup_gpio():
     """
-    Clean up GPIO pins.
-    
-    Releases GPIO resources and resets all pins.
+    Safely reset all GPIO resources.
     """
-    GPIO.cleanup()
-    print("GPIO cleaned up.")
+    try:
+        GPIO.cleanup()
+        print("[✅ GPIO CLEANUP] GPIO resources released.")
+    except Exception as e:
+        print(f"[❌ GPIO CLEANUP ERROR] {e}")

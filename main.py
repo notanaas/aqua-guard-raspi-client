@@ -94,7 +94,7 @@ def main_loop():
             for action in actions:
                 control_relay(action["actuator"], action["command"])
                 notify_server(
-                    user_id=SERIAL_NUMBER,
+                    user_identifier=SERIAL_NUMBER,
                     message=action["message"],
                     notification_type="info" if action["command"] == "ON" else "warning",
                 )

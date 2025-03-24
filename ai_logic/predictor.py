@@ -89,7 +89,7 @@ def execute_actions(actions):
             log_to_blockchain("actuator_action", action)
 
             # Send notification to the server
-            notify_server(SERIAL_NUMBER, action["message"], "info")
+            notify_server(user_identifier=SERIAL_NUMBER,message=action["message"],notification_type="info" if action["command"] == "ON" else "warning",)
         except requests.RequestException as e:
             print(f"Failed to execute action for actuator {action['actuator']}: {e}")
 
