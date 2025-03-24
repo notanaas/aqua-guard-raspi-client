@@ -46,6 +46,7 @@ def fetch_actuator_states():
     headers = {
         "Content-Type": "application/json",
         "x-api-key": DEVICE_API_KEY,
+        "x-serial-number": SERIAL_NUMBER,
     }
     try:
         response = requests.get(url, headers=headers, timeout=10)
